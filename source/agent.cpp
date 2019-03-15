@@ -37,24 +37,38 @@
 #include "device/serial/serialclass.h"
 #include <iostream>
 #include <fstream>
+#include <thread>
 
+#include <support/jsondef.h>
+#include "support/jsonlib.h"
+#include <bsoncxx/json.hpp>
 #include <mongocxx/client.hpp>
 #include <mongocxx/instance.hpp>
+#include <mongocxx/stdx.hpp>
 #include <mongocxx/uri.hpp>
 
+using bsoncxx::builder::stream::close_array;
+using bsoncxx::builder::stream::close_document;
+using bsoncxx::builder::stream::document;
+using bsoncxx::builder::stream::finalize;
+using bsoncxx::builder::stream::open_array;
+using bsoncxx::builder::stream::open_document;
 using namespace mongocxx;
+using bsoncxx::builder::basic::kvp;
+
 using namespace std;
 
 Agent *agent;
 ofstream file;
-
+void collect_data_loop();
+thread cdthread;
 
 int main(int argc, char** argv)
 {
     cout << "Agent Template" << endl;
     Agent *agent;
     string nodename = "cubesat1";
-    string agentname = "template"; //name of the agent that the request is directed to
+    string agentname = "mongodb"; //name of the agent that the request is directed to
 
     agent = new Agent(nodename, agentname);
 
@@ -78,7 +92,7 @@ int main(int argc, char** argv)
 
     // Create a MongoDB instance
     mongocxx::instance instance {};
-    
+
     // Connect to a MongoDB URI
     mongocxx::client connection {
         mongocxx::uri {
@@ -86,26 +100,81 @@ int main(int argc, char** argv)
         }
     };
 
+    mongocxx::database db = client["db"];
+
     // Initialize the MongoDB session
     auto session = connection.start_session();
+
+    cdthread = thread(collect_data_loop);
 
     // Start executing the agent
     while(agent->running())
     {
+	// while running, listen to the incoming events coming in from satellite
+	// store data into the collection, separated by the node coming in from a ring buffer
+	// at the same time be able to service requests from the listening client in the thread
+
         // Specify and connect to a database and collection
-        auto collection = conn["db"]["collection"];
+        mongocxx::collection collection = db[agent->cinfo->name];
 
         // Start executing the agent
         //        pos_eci.utc = currentmjd(0);
         //        agent->cinfo->node.loc.pos.eci = pos_eci;
         agent->cinfo->devspec.imu[0]->temp = 123;
 
+        // Convert agent data into JSON string
+        string json_data = json_list_of_soh(agent->cinfo);
+
+        // Convert JSON string to BSON document value
+        document::value document = bsonxx::from_json(json_data);
+
+        // Insert document into the database
+        try {
+            mongocxx::collection::insert_one(document);
+        } catch (mongocxx::bulk_write_exception err) {
+            cout << "Error writing to database." << err << endl;
+        }
+
         //sleep for 1 sec
         COSMOS_SLEEP(0.1);
     }
 
+    agent->shutdown();
+    cdthread.join();
 
     return 0;
+}
+
+void collect_data_loop()
+{
+    size_t my_position = -1;
+    while (agent->running())
+    {
+        // Collect new data
+        while (my_position != agent->message_head)
+        {
+            ++my_position;
+            if (my_position >= agent->message_ring.size())
+            {
+                my_position = 0;
+            }
+            if (agent->cinfo->node.name == agent->message_ring[my_position].meta.beat.node && agent->message_ring[my_position].meta.type < Agent::AgentMessage::BINARY)
+            {
+                json_parse(agent->message_ring[my_position].adata, agent->cinfo);
+                agent->cinfo->node.utc = currentmjd(0.);
+
+                for (devicestruc device: agent->cinfo->device)
+                {
+                    if (device.all.utc > agent->cinfo->node.utc)
+                    {
+                        agent->cinfo->node.utc = device.all.utc;
+                    }
+                }
+            }
+        }
+        COSMOS_SLEEP(.1);
+    }
+    return;
 }
 
 // heartbeat / soh msgs
