@@ -44,9 +44,9 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
     set(COSMOS_LIBS ${COSMOS_LIBS} ws2_32)
 endif()
 
-add_executable(agent agent.cpp)
+add_executable(agent_mongo agent_mongo.cpp)
 
-target_link_libraries(agent ${COSMOS_LIBS})
+target_link_libraries(agent_mongo ${COSMOS_LIBS})
 
 # -----------------------------------------------
 # to deploy on a remote device
