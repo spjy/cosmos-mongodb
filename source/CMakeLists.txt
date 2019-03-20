@@ -9,6 +9,8 @@ set(COSMOS_SOURCE   "../../../")
 set(USE_COSMOS_FROM "SOURCE")
 
 #include_directories("/Users/miguelnunes/")
+include_directories("/usr/local/include/mongocxx/v_noabi" "/usr/local/include/bsoncxx/v_noabi")
+link_directories("/usr/local/lib")
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -std=c++11 -Wno-invalid-offsetof")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
@@ -17,6 +19,8 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 # To use COSMOS from the source folder
 #include(${CMAKE_SOURCE_DIR}/use_cosmos_from_source.cmake)
 include(${COSMOS_SOURCE}/core/cmake/use_cosmos_from_source.cmake)
+#include("/usr/local/lib/cmake/libbsoncxx-3.4.0/libbsoncxx-config-version.cmake")
+#include("/usr/local/lib/cmake/libmongocxx-3.4.0/libmongocxx-config-version.cmake")
 
 #add_executable(agent_cpu "${COSMOS_SOURCE}/core/programs/agents/agent_cpu.cpp")
 #target_link_libraries(agent_cpu
