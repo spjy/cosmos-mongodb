@@ -8,6 +8,9 @@ project(mongodb)
 set(COSMOS_SOURCE   "../../../")
 set(USE_COSMOS_FROM "SOURCE")
 
+find_package(libmongocxx REQUIRED)
+find_package(libbsoncxx REQUIRED)
+
 #include_directories("/Users/miguelnunes/")
 include_directories("/usr/local/include/mongocxx/v_noabi" "/usr/local/include/bsoncxx/v_noabi")
 link_directories("/usr/local/lib")
@@ -50,7 +53,7 @@ endif()
 
 add_executable(agent_mongo agent_mongo.cpp)
 
-target_link_libraries(agent_mongo ${COSMOS_LIBS})
+target_link_libraries(agent_mongo ${COSMOS_LIBS} mongoc-1.0 mongocxx bson-1.0 bsoncxx)
 
 # -----------------------------------------------
 # to deploy on a remote device

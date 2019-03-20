@@ -125,7 +125,8 @@ int main(int argc, char** argv)
     // set the soh string
     agent->set_sohstring(soh.c_str());
     // Create a MongoDB instance
-    mongocxx::v_noabi::instance instance {};
+
+    mongocxx::instance instance {};
 
     // Connect to a MongoDB URI
     mongocxx::client connection {
