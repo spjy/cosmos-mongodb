@@ -69,30 +69,24 @@ std::ofstream file;
 
 void collect_data_loop(mongocxx::client &connection);
 void service_requests(mongocxx::client &connection);
-map<std::string, std::string> get_map(std::string request);
+map<std::string, std::string> get_keys(std::string &request, std::string variable_delimiter, std::string value_delimiter);
 
-thread collect_data_thread;
-thread service_requests_thread;
+std::thread collect_data_thread;
+std::thread service_requests_thread;
 
-// variable=value?variable=value?variable=value
+// database=db?variable=value?variable=value
 
-map<std::string, std::string> get_map(std::string request) {
+map<std::string, std::string> get_keys(std::string &request, std::string variable_delimiter, std::string value_delimiter) {
     // Delimit by key value pairs
-    vector<std::string> input = string_split(request, "?");
+    vector<std::string> input = string_split(request, variable_delimiter);
 
     map<std::string, std::string> keys;
 
     // Delimit
     for (vector<std::string>::iterator it = input.begin(); it != input.end(); ++it) {
-        vector<std::string> kv = string_split(*it, "=");
+        vector<std::string> kv = string_split(*it, value_delimiter);
 
         keys[kv[0]] = kv[1]; // Set the variable to the map key and assign the corresponding value
-    }
-
-    if (!(keys.find("database") == keys.end()
-            || keys.find("collection") == keys.end()
-            || keys.find("filter") == keys.end())) {
-        throw "Not all required fields were provided.";
     }
 
     return keys;
@@ -100,12 +94,16 @@ map<std::string, std::string> get_map(std::string request) {
 
 int main(int argc, char** argv)
 {
-    cout << "Agent Template" << endl;
-    Agent *agent;
+    cout << "Agent Mongo" << endl;
     std::string nodename = "cubesat1";
-    std::string agentname = "mongodb"; //name of the agent that the request is directed to
+    std::string agentname = "mongo"; //name of the agent that the request is directed to
 
     agent = new Agent(nodename, agentname);
+
+    if (agent->cinfo == nullptr) {
+        std::cout << "Unable to start agent_mongo" << std::endl;
+        exit(1);
+    }
 
     // add state of health (soh)
     std::string soh = "{\"device_batt_current_000\"}";
@@ -131,12 +129,11 @@ int main(int argc, char** argv)
     // Connect to a MongoDB URI
     mongocxx::client connection {
         mongocxx::uri {
-            "mongodb://localhost"
+            "mongodb://192.168.150.9:27017/cosmos"
         }
     };
 
     // Initialize the MongoDB session
-    auto session = connection.start_session();
 
     collect_data_thread = thread(collect_data_loop, std::ref(connection));
     service_requests_thread = thread(service_requests, std::ref(connection));
@@ -144,9 +141,10 @@ int main(int argc, char** argv)
     // Start executing the agent
     while(agent->running())
     {
-    // while running, listen to the incoming events coming in from satellite
-    // store data into the collection, separated by the node coming in from a ring buffer
-    // at the same time be able to service requests from the listening client in the thread
+
+        // while running, listen to the incoming events coming in from satellite
+        // store data into the collection, separated by the node coming in from a ring buffer
+        // at the same time be able to service requests from the listening client in the thread
 
         // Specify and connect to a database and collection
 
@@ -184,18 +182,16 @@ void collect_data_loop(mongocxx::client &connection)
             // Check if type is a heartbeat and if the type is less than binary
             if (agent->message_ring[my_position].meta.type == Agent::AgentMessage::BEAT || agent->message_ring[my_position].meta.type == Agent::AgentMessage::SOH)
             {
+                bsoncxx::document::value document = bsoncxx::from_json(agent->message_ring[my_position].jdata);
+
                 // Get collection of name agent
-                auto collection = connection["db"][agent->getAgent()];
+//                auto collection = connection["db"][]; // store by node
 
                 // Convert agent data into JSON string
-                std::string json_data = json_list_of_soh(agent->cinfo);
-
-                // Convert JSON string to BSON document value
-                document::value document = bsoncxx::from_json(json_data);
 
                 // Insert document into the database receivedData
                 try {
-                    auto insert = collection.insert_one({});
+//                    auto insert = collection.insert_one(bsoncxx::from_json(agent->message_ring[my_position].adata));
                 } catch (mongocxx::bulk_write_exception err) {
                     cout << "Error writing to database." << endl;
                 }
@@ -214,7 +210,7 @@ void service_requests(mongocxx::client &connection) {
         char request[AGENTMAXBUFFER + 1];
         uint32_t i;
 
-        // Check if socket opened
+        // Check if socket opened•••••••••
         if ((iretn = socket_open(&agent->cinfo->agent[0].req, NetworkType::UDP, (char *)"", agent->cinfo->agent[0].beat.port, SOCKET_LISTEN, SOCKET_BLOCKING, 2000000)) < 0)
         {
             return;
@@ -246,22 +242,30 @@ void service_requests(mongocxx::client &connection) {
 
             if (iretn > 0)
             {
-                bsoncxx::builder::stream::document document{};
+                bsoncxx::builder::stream::document document {};
                 // variable=value?variable=value?variable=value
                 // database=db?collection=agent?filter={"temperature":"75","acceleration":"2"}
 
-                // clean out any spaces
+                // possible variables to pass
+                // database, collection, query, multiple (differ between find_one and find)
                 // delimit first by question marks, then convert each key value pair into a map
                 // then for the filter, permanent simulation of neutron1
 
                 // Convert the character
+                std::string request = bufferin;
 
-                map<std::string, std::string> input = get_map(request);
+                map<std::string, std::string> input = get_keys(request, "?", "=");
 
                 mongocxx::collection collection = connection[input["database"]][input["collection"]];
-                auto cursor = collection.find({});
+
+                if (input["multiple"] == "true") {
+                    auto cursor = collection.find(bsoncxx::from_json(input["query"]));
+                } else {
+                    auto cursor = collection.find_one(bsoncxx::from_json(input["query"]));
+                }
 
             }
+            COSMOS_SLEEP(.1);
         }
         free(bufferin);
     }
