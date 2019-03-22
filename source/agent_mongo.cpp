@@ -49,7 +49,11 @@
 #include <bsoncxx/array/element.hpp>
 #include <bsoncxx/array/element.hpp>
 #include <bsoncxx/builder/stream/document.hpp>
+#include <bsoncxx/builder/basic/document.hpp>
+#include <bsoncxx/builder/concatenate.hpp>
 #include <bsoncxx/json.hpp>
+#include <bsoncxx/exception/exception.hpp>
+#include <bsoncxx/exception/error_code.hpp>
 
 #include <mongocxx/client.hpp>
 #include <mongocxx/instance.hpp>
@@ -58,11 +62,10 @@
 #include <mongocxx/collection.hpp>
 #include <mongocxx/bulk_write.hpp>
 #include <mongocxx/exception/bulk_write_exception.hpp>
-
-#define ADDRESS "225.1.1.1"
-#define PORT 10020
+#include <mongocxx/cursor.hpp>
 
 using namespace bsoncxx;
+using bsoncxx::builder::basic::kvp;
 
 Agent *agent;
 std::ofstream file;
@@ -92,13 +95,19 @@ map<std::string, std::string> get_keys(std::string &request, std::string variabl
     return keys;
 }
 
+void post_database_data(document::view cursor) {
+    std::string data = bsoncxx::to_json(cursor);
+
+    agent->post(Agent::AgentMessage::SOH, data);
+}
+
 int main(int argc, char** argv)
 {
     cout << "Agent Mongo" << endl;
     std::string nodename = "cubesat1";
     std::string agentname = "mongo"; //name of the agent that the request is directed to
 
-    agent = new Agent(nodename, agentname);
+    agent = new Agent(nodename, agentname, 1, AGENTMAXBUFFER, false, 20301);
 
     if (agent->cinfo == nullptr) {
         std::cout << "Unable to start agent_mongo" << std::endl;
@@ -129,7 +138,7 @@ int main(int argc, char** argv)
     // Connect to a MongoDB URI
     mongocxx::client connection {
         mongocxx::uri {
-            "mongodb://192.168.150.9:27017/cosmos"
+            "mongodb://192.168.150.9:27017/"
         }
     };
 
@@ -182,18 +191,44 @@ void collect_data_loop(mongocxx::client &connection)
             // Check if type is a heartbeat and if the type is less than binary
             if (agent->message_ring[my_position].meta.type == Agent::AgentMessage::BEAT || agent->message_ring[my_position].meta.type == Agent::AgentMessage::SOH)
             {
-                bsoncxx::document::value document = bsoncxx::from_json(agent->message_ring[my_position].jdata);
+                std::string adata = agent->message_ring[my_position].adata;
 
-                // Get collection of name agent
-//                auto collection = connection["db"][]; // store by node
+                // If no content in adata, don't continue or write to database
+                if (!adata.empty() && adata[0] == '{' && adata[adata.size() - 1] == '}') {
+                    // Extract the name of the node
+                    std::string utc = json_extract_namedobject(agent->message_ring[my_position].jdata, "agent_utc");
+                    std::string node = json_extract_namedobject(agent->message_ring[my_position].jdata, "agent_node");
 
-                // Convert agent data into JSON string
+                    node.erase(0, 1);
+                    node.pop_back();
 
-                // Insert document into the database receivedData
-                try {
-//                    auto insert = collection.insert_one(bsoncxx::from_json(agent->message_ring[my_position].adata));
-                } catch (mongocxx::bulk_write_exception err) {
-                    cout << "Error writing to database." << endl;
+                    // Connect to the database and store in the collection of the node name
+                    auto collection = connection["db"][node]; // store by node
+
+                    bsoncxx::builder::basic::document builder {};
+
+                    builder.append(kvp("agent_utc", utc));
+                    bsoncxx::document::view_or_value value;
+
+                    try {
+                        // Convert JSON into BSON object to prepare for database insertion
+                        value = bsoncxx::from_json(agent->message_ring[my_position].adata);
+                    } catch (bsoncxx::exception err) {
+                        std::cout << "Error converting to BSON from JSON" << std::endl;
+
+                        throw err;
+                    }
+
+                    try {
+                        // Insert BSON object into collection specified
+                        auto insert = collection.insert_one(value);
+
+                        std::cout << "Inserted adata into collection " << node << std::endl;
+                    } catch (mongocxx::bulk_write_exception err) {
+                        cout << "Error writing to database." << endl;
+
+                        throw err;
+                    }
                 }
             }
         }
@@ -219,7 +254,7 @@ void service_requests(mongocxx::client &connection) {
         // If the socket opened, set the heartbeat port to cport
         agent->cinfo->agent[0].beat.port = agent->cinfo->agent[0].req.cport;
 
-        // Check buffer size                std::string buffer = request;
+        // Check buffer size
 
         if ((bufferin = (char *) calloc(1, agent->cinfo->agent[0].beat.bsz)) == NULL)
         {
@@ -240,8 +275,13 @@ void service_requests(mongocxx::client &connection) {
                 (socklen_t *)&agent->cinfo->agent[0].req.addrlen
             );
 
+
+            std::cout << "Hi, I am ready to receive. " << bufferin << std::endl;
+            agent->post(Agent::AgentMessage::SOH, "");
+
             if (iretn > 0)
             {
+                std::cout << "Hi, I am receiving data. " << bufferin << std::endl;
                 bsoncxx::builder::stream::document document {};
                 // variable=value?variable=value?variable=value
                 // database=db?collection=agent?filter={"temperature":"75","acceleration":"2"}
@@ -258,12 +298,27 @@ void service_requests(mongocxx::client &connection) {
 
                 mongocxx::collection collection = connection[input["database"]][input["collection"]];
 
-                if (input["multiple"] == "true") {
-                    auto cursor = collection.find(bsoncxx::from_json(input["query"]));
-                } else {
-                    auto cursor = collection.find_one(bsoncxx::from_json(input["query"]));
-                }
+                std::cout << input["database"] << input["collection"] << std::endl;
 
+                if (input["multiple"] == "true") {
+                    mongocxx::cursor cursor = collection.find({});
+
+                    std::string data;
+
+                    for (auto document : cursor) {
+                        data = bsoncxx::to_json(document);
+                        std::cout << bsoncxx::to_json(document) << "\n";
+                    }
+                    agent->post(Agent::AgentMessage::SOH, "multiple" + data);
+                } else {
+                    stdx::optional<bsoncxx::document::value> document = collection.find_one(bsoncxx::from_json(input["query"]));
+
+                    std::string data;
+
+                    data = bsoncxx::to_json(document.value());
+
+                    agent->post(Agent::AgentMessage::SOH, "single" +data);
+                }
             }
             COSMOS_SLEEP(.1);
         }
