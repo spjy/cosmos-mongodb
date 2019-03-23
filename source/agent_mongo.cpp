@@ -62,6 +62,8 @@
 #include <mongocxx/collection.hpp>
 #include <mongocxx/bulk_write.hpp>
 #include <mongocxx/exception/bulk_write_exception.hpp>
+#include <mongocxx/exception/query_exception.hpp>
+#include <mongocxx/exception/logic_error.hpp>
 #include <mongocxx/cursor.hpp>
 
 using namespace bsoncxx;
@@ -213,10 +215,8 @@ void collect_data_loop(mongocxx::client &connection)
                     try {
                         // Convert JSON into BSON object to prepare for database insertion
                         value = bsoncxx::from_json(agent->message_ring[my_position].adata);
-                    } catch (bsoncxx::exception err) {
+                    } catch (const bsoncxx::exception err) {
                         std::cout << "Error converting to BSON from JSON" << std::endl;
-
-                        throw err;
                     }
 
                     try {
@@ -224,10 +224,8 @@ void collect_data_loop(mongocxx::client &connection)
                         auto insert = collection.insert_one(value);
 
                         std::cout << "Inserted adata into collection " << node << std::endl;
-                    } catch (mongocxx::bulk_write_exception err) {
+                    } catch (const mongocxx::bulk_write_exception err) {
                         cout << "Error writing to database." << endl;
-
-                        throw err;
                     }
                 }
             }
@@ -275,7 +273,6 @@ void service_requests(mongocxx::client &connection) {
                 (socklen_t *)&agent->cinfo->agent[0].req.addrlen
             );
 
-
             std::cout << "Hi, I am ready to receive. " << bufferin << std::endl;
             agent->post(Agent::AgentMessage::SOH, "");
 
@@ -292,33 +289,82 @@ void service_requests(mongocxx::client &connection) {
                 // then for the filter, permanent simulation of neutron1
 
                 // Convert the character
-                std::string request = bufferin;
+                std::string req = bufferin;
 
-                map<std::string, std::string> input = get_keys(request, "?", "=");
+                map<std::string, std::string> input = get_keys(req, "?", "=");
 
                 mongocxx::collection collection = connection[input["database"]][input["collection"]];
 
-                std::cout << input["database"] << input["collection"] << std::endl;
+                std::string response;
 
-                if (input["multiple"] == "true") {
-                    mongocxx::cursor cursor = collection.find({});
+                if (input["multiple"] == "true")
+                {
+                    try {
+                        // Query the database based on the filter
+                        mongocxx::cursor cursor = collection.find(bsoncxx::from_json(input["query"]));
 
-                    std::string data;
+                        // Check if the returned cursor is empty, if so return an empty array
+                        if (!(cursor.begin() == cursor.end())) {
+                            std::string data;
 
-                    for (auto document : cursor) {
-                        data = bsoncxx::to_json(document);
-                        std::cout << bsoncxx::to_json(document) << "\n";
+                            for (auto document : cursor) {
+                                data.insert(data.size(), bsoncxx::to_json(document) + ",");
+                            }
+
+                            data.pop_back();
+
+                            response = "[" + data + "]";
+                        } else {
+                            response = "[]";
+                        }
+                    } catch (mongocxx::logic_error err) {
+                        std::cout << "Logic error when querying occurred" << std::endl;
+
+                        response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
+                    } catch (bsoncxx::exception err) {
+                        std::cout << "Could not convert JSON" << std::endl;
+
+                        response = "{\"error\": \"Improper JSON query. Could not convert.\"}";
                     }
-                    agent->post(Agent::AgentMessage::SOH, "multiple" + data);
-                } else {
-                    stdx::optional<bsoncxx::document::value> document = collection.find_one(bsoncxx::from_json(input["query"]));
 
-                    std::string data;
 
-                    data = bsoncxx::to_json(document.value());
-
-                    agent->post(Agent::AgentMessage::SOH, "single" +data);
+                    std::cout << response << std::endl;
                 }
+                else
+                {
+                    stdx::optional<bsoncxx::document::value> document;
+                    try {
+                        document = collection.find_one(bsoncxx::from_json(input["query"]));
+                    } catch (mongocxx::query_exception err) {
+                        std::cout << "Logic error when querying occurred" << std::endl;
+
+                        response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
+                    } catch (bsoncxx::exception err) {
+                        std::cout << "Could not convert JSON" << std::endl;
+
+                        response = "{\"error\": \"Improper JSON query. Could not convert.\"}";
+                    }
+
+
+                    // Check if document is empty, if so return an empty object
+                    if (document) {
+                        std::string data;
+
+                        data = bsoncxx::to_json(document.value());
+
+                        response = data;
+
+                    } else {
+                        response = "{}";
+                    }
+                }
+
+                if (response.empty()) {
+                    response = ebuffer;
+                }
+
+                bufferout = (char *)response.c_str();
+                sendto(agent->cinfo->agent[0].req.cudp, bufferout, strlen(bufferout), 0, (struct sockaddr *)&agent->cinfo->agent[0].req.caddr, *(socklen_t *)&agent->cinfo->agent[0].req.addrlen);
             }
             COSMOS_SLEEP(.1);
         }
