@@ -39,6 +39,7 @@
 #include "support/stringlib.h"
 #include "support/jsondef.h"
 #include "support/jsonlib.h"
+#include <string.h>
 #include <iostream>
 #include <fstream>
 #include <thread>
@@ -65,9 +66,11 @@
 #include <mongocxx/exception/query_exception.hpp>
 #include <mongocxx/exception/logic_error.hpp>
 #include <mongocxx/cursor.hpp>
+#include <mongocxx/options/find.hpp>
 
 using namespace bsoncxx;
 using bsoncxx::builder::basic::kvp;
+using namespace bsoncxx::builder::stream;
 
 Agent *agent;
 std::ofstream file;
@@ -97,10 +100,10 @@ map<std::string, std::string> get_keys(std::string &request, std::string variabl
     return keys;
 }
 
-void post_database_data(document::view cursor) {
-    std::string data = bsoncxx::to_json(cursor);
+// max:5,
 
-    agent->post(Agent::AgentMessage::SOH, data);
+void set_mongo_options(mongocxx::options::find &options, std::string request) {
+
 }
 
 int main(int argc, char** argv)
@@ -239,7 +242,7 @@ void service_requests(mongocxx::client &connection) {
     while (agent->running()) {
         char ebuffer[6]="[NOK]";
         int32_t iretn, nbytes;
-        char *bufferin, *bufferout;
+
         char request[AGENTMAXBUFFER + 1];
         uint32_t i;
 
@@ -249,20 +252,22 @@ void service_requests(mongocxx::client &connection) {
             return;
         }
 
-        // If the socket opened, set the heartbeat port to cport
-        agent->cinfo->agent[0].beat.port = agent->cinfo->agent[0].req.cport;
-
-        // Check buffer size
-
-        if ((bufferin = (char *) calloc(1, agent->cinfo->agent[0].beat.bsz)) == NULL)
-        {
-            iretn = -errno;
-            return;
-        }
-
         // While agent is running
         while (agent->cinfo->agent[0].stateflag)
         {
+            char *bufferin, *bufferout, *empty = "";
+
+            // If the socket opened, set the heartbeat port to cport
+            agent->cinfo->agent[0].beat.port = agent->cinfo->agent[0].req.cport;
+
+            // Check buffer size
+
+            if ((bufferin = (char *) calloc(1, agent->cinfo->agent[0].beat.bsz)) == NULL)
+            {
+                iretn = -errno;
+                return;
+            }
+
             // Receiving socket data
             iretn = recvfrom(
                 agent->cinfo->agent[0].req.cudp,
@@ -273,12 +278,11 @@ void service_requests(mongocxx::client &connection) {
                 (socklen_t *)&agent->cinfo->agent[0].req.addrlen
             );
 
-            std::cout << "Hi, I am ready to receive. " << bufferin << std::endl;
-            agent->post(Agent::AgentMessage::SOH, "");
+            std::cout << "Receiving " << bufferin << std::endl;
 
             if (iretn > 0)
             {
-                std::cout << "Hi, I am receiving data. " << bufferin << std::endl;
+                std::cout << "Received request: " << bufferin << std::endl;
                 bsoncxx::builder::stream::document document {};
                 // variable=value?variable=value?variable=value
                 // database=db?collection=agent?filter={"temperature":"75","acceleration":"2"}
@@ -297,11 +301,13 @@ void service_requests(mongocxx::client &connection) {
 
                 std::string response;
 
+                mongocxx::options::find options;
+
                 if (input["multiple"] == "true")
                 {
                     try {
                         // Query the database based on the filter
-                        mongocxx::cursor cursor = collection.find(bsoncxx::from_json(input["query"]));
+                        mongocxx::cursor cursor = collection.find(bsoncxx::from_json(input["query"]), options);
 
                         // Check if the returned cursor is empty, if so return an empty array
                         if (!(cursor.begin() == cursor.end())) {
@@ -367,7 +373,7 @@ void service_requests(mongocxx::client &connection) {
                 sendto(agent->cinfo->agent[0].req.cudp, bufferout, strlen(bufferout), 0, (struct sockaddr *)&agent->cinfo->agent[0].req.caddr, *(socklen_t *)&agent->cinfo->agent[0].req.addrlen);
             }
             COSMOS_SLEEP(.1);
+            free(bufferin);
         }
-        free(bufferin);
     }
 }
