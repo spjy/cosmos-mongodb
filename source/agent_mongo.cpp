@@ -46,6 +46,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <locale>
 
 #include <bsoncxx/array/element.hpp>
 #include <bsoncxx/array/element.hpp>
@@ -102,8 +103,69 @@ map<std::string, std::string> get_keys(std::string &request, std::string variabl
 
 // max:5,
 
-void set_mongo_options(mongocxx::options::find &options, std::string request) {
+enum MongoFindOption {
+    BATCH_SIZE,
+    COALITION,
+    COMMENT,
+    CURSOR_TYPE,
+    HINT,
+    LIMIT,
+    MAX,
+    MAX_AWAIT_TIME,
+    MAX_SCAN,
+    MAX_TIME,
+    MIN,
+    NO_CURSOR_TIMEOUT,
+    PROJECTION,
+    READ_PREFERENCE,
+    MODIFIERS,
+    RETURN_KEY,
+    SHOW_RECORD_ID,
+    SKIP,
+    SNAPSHOT,
+    SORT
+};
 
+void set_mongo_options(mongocxx::options::find &options, std::string request) {
+    bsoncxx::document::view opt = bsoncxx::from_json(request).view();
+
+    for (bsoncxx::document::element e : opt) {
+        stdx::string_view field_key{e.key()};
+
+    }
+
+}
+
+void str_to_lowercase(std::string &input) {
+    std::locale locale;
+    for (std::string::size_type i = 0; i < input.length(); ++i) {
+        std::tolower(input[i], locale);
+    }
+}
+
+MongoFindOption option_table(std::string input) {
+    str_to_lowercase(input);
+
+    if (input == "batch_size") return MongoFindOption::BATCH_SIZE;
+    if (input == "coalition") return MongoFindOption::COALITION;
+    if (input == "comment") return MongoFindOption::COMMENT;
+    if (input == "cursor_type") return MongoFindOption::CURSOR_TYPE;
+    if (input == "hint") return MongoFindOption::HINT;
+    if (input == "limit") return MongoFindOption::LIMIT;
+    if (input == "max") return MongoFindOption::MAX;
+    if (input == "max_await_time") return MongoFindOption::MAX_AWAIT_TIME;
+    if (input == "max_scan") return MongoFindOption::MAX_SCAN;
+    if (input == "max_time") return MongoFindOption::MAX_TIME;
+    if (input == "min") return MongoFindOption::MIN;
+    if (input == "no_cursor_timeout") return MongoFindOption::NO_CURSOR_TIMEOUT;
+    if (input == "projection") return MongoFindOption::PROJECTION;
+    if (input == "read_preferences") return MongoFindOption::READ_PREFERENCE;
+    if (input == "modifiers") return MongoFindOption::MODIFIERS;
+    if (input == "return_key") return MongoFindOption::RETURN_KEY;
+    if (input == "show_record_id") return MongoFindOption::SHOW_RECORD_ID;
+    if (input == "skip") return MongoFindOption::SKIP;
+    if (input == "snapshot") return MongoFindOption::SNAPSHOT;
+    if (input == "sort") return MongoFindOption::SORT;
 }
 
 int main(int argc, char** argv)
@@ -196,10 +258,11 @@ void collect_data_loop(mongocxx::client &connection)
             // Check if type is a heartbeat and if the type is less than binary
             if (agent->message_ring[my_position].meta.type == Agent::AgentMessage::BEAT || agent->message_ring[my_position].meta.type == Agent::AgentMessage::SOH)
             {
-                std::string adata = agent->message_ring[my_position].adata;
+                // First use reference to adata to check conditions
+                std::string *padata = &agent->message_ring[my_position].adata;
 
                 // If no content in adata, don't continue or write to database
-                if (!adata.empty() && adata[0] == '{' && adata[adata.size() - 1] == '}') {
+                if (!padata->empty() && padata->front() == '{' && padata->back() == '}') {
                     // Extract the name of the node
                     std::string utc = json_extract_namedobject(agent->message_ring[my_position].jdata, "agent_utc");
                     std::string node = json_extract_namedobject(agent->message_ring[my_position].jdata, "agent_node");
@@ -210,14 +273,17 @@ void collect_data_loop(mongocxx::client &connection)
                     // Connect to the database and store in the collection of the node name
                     auto collection = connection["db"][node]; // store by node
 
-                    bsoncxx::builder::basic::document builder {};
-
-                    builder.append(kvp("agent_utc", utc));
                     bsoncxx::document::view_or_value value;
+
+                    // Copy adata and manipulate string to add the agent_utc (date)
+                    std::string adata = agent->message_ring[my_position].adata;
+                    adata.pop_back();
+
+                    std::string adata_with_date = adata.append(", \"agent_utc\" : " + utc + "}");
 
                     try {
                         // Convert JSON into BSON object to prepare for database insertion
-                        value = bsoncxx::from_json(agent->message_ring[my_position].adata);
+                        value = bsoncxx::from_json(adata_with_date);
                     } catch (const bsoncxx::exception err) {
                         std::cout << "Error converting to BSON from JSON" << std::endl;
                     }
@@ -288,7 +354,7 @@ void service_requests(mongocxx::client &connection) {
                 // database=db?collection=agent?filter={"temperature":"75","acceleration":"2"}
 
                 // possible variables to pass
-                // database, collection, query, multiple (differ between find_one and find)
+                // database, collection, query, options (differ between find_one and find)
                 // delimit first by question marks, then convert each key value pair into a map
                 // then for the filter, permanent simulation of neutron1
 
