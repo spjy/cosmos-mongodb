@@ -40,6 +40,7 @@
 #include "support/jsondef.h"
 #include "support/jsonlib.h"
 #include <string.h>
+#include <iterator>
 #include <iostream>
 #include <fstream>
 #include <thread>
@@ -48,7 +49,8 @@
 #include <map>
 #include <locale>
 
-#include <bsoncxx/array/element.hpp>
+#include <bsoncxx/document/value.hpp>
+#include <bsoncxx/document/view.hpp>
 #include <bsoncxx/array/element.hpp>
 #include <bsoncxx/builder/stream/document.hpp>
 #include <bsoncxx/builder/basic/document.hpp>
@@ -56,6 +58,7 @@
 #include <bsoncxx/json.hpp>
 #include <bsoncxx/exception/exception.hpp>
 #include <bsoncxx/exception/error_code.hpp>
+#include <bsoncxx/types/value.hpp>
 
 #include <mongocxx/client.hpp>
 #include <mongocxx/instance.hpp>
@@ -78,14 +81,14 @@ std::ofstream file;
 
 void collect_data_loop(mongocxx::client &connection);
 void service_requests(mongocxx::client &connection);
-map<std::string, std::string> get_keys(std::string &request, std::string variable_delimiter, std::string value_delimiter);
+map<std::string, std::string> get_keys(std::string &request, const std::string variable_delimiter, const std::string value_delimiter);
 
 std::thread collect_data_thread;
 std::thread service_requests_thread;
 
 // database=db?variable=value?variable=value
 
-map<std::string, std::string> get_keys(std::string &request, std::string variable_delimiter, std::string value_delimiter) {
+map<std::string, std::string> get_keys(std::string &request, const std::string variable_delimiter, const std::string value_delimiter) {
     // Delimit by key value pairs
     vector<std::string> input = string_split(request, variable_delimiter);
 
@@ -101,9 +104,7 @@ map<std::string, std::string> get_keys(std::string &request, std::string variabl
     return keys;
 }
 
-// max:5,
-
-enum MongoFindOption {
+enum class MongoFindOption {
     BATCH_SIZE,
     COALITION,
     COMMENT,
@@ -126,15 +127,6 @@ enum MongoFindOption {
     SORT
 };
 
-void set_mongo_options(mongocxx::options::find &options, std::string request) {
-    bsoncxx::document::view opt = bsoncxx::from_json(request).view();
-
-    for (bsoncxx::document::element e : opt) {
-        stdx::string_view field_key{e.key()};
-
-    }
-
-}
 
 void str_to_lowercase(std::string &input) {
     std::locale locale;
@@ -166,6 +158,61 @@ MongoFindOption option_table(std::string input) {
     if (input == "skip") return MongoFindOption::SKIP;
     if (input == "snapshot") return MongoFindOption::SNAPSHOT;
     if (input == "sort") return MongoFindOption::SORT;
+}
+
+void set_mongo_options(mongocxx::options::find &options, std::string request) {
+    bsoncxx::document::value reqJSON = bsoncxx::from_json(request);
+    bsoncxx::document::view opt { reqJSON.view() };
+
+    for (auto e : opt) {
+        std::string key = std::string(e.key());
+
+        stdx::string_view field_key{e.key()};
+        bsoncxx::types::value ele_val{e.get_value()};
+
+        std::cout << e.get_int32().value << std::endl;
+
+        MongoFindOption option = option_table(key);
+
+        switch(option) {
+            case MongoFindOption::BATCH_SIZE:
+                options.allow_partial_results(e.get_bool().value);
+                break;
+            case MongoFindOption::COALITION:
+                options.batch_size(e.get_int32().value);
+                break;
+            case MongoFindOption::LIMIT:
+            // check if int32_t and convert to int64_t to accept either one
+                options.limit(2);
+                break;
+//            case MongoFindOption::MAX:
+//                options.max(e.get_document()); // bson view or value
+//            case MongoFindOption::MAX_AWAIT_TIME:
+//                options.max_await_time(e.get_date()); // chronos
+//            case MongoFindOption::MAX_TIME:
+//                options.max_time() // chronos
+//            case MongoFindOption::MIN:
+//                options.min(e.get_document()) // bson view or value
+            case MongoFindOption::NO_CURSOR_TIMEOUT:
+                options.no_cursor_timeout(e.get_bool().value);
+                break;
+//            case MongoFindOption::PROJECTION:
+//                options.projection() // bson view or value
+            case MongoFindOption::RETURN_KEY:
+                options.return_key(e.get_bool().value);
+                break;
+            case MongoFindOption::SHOW_RECORD_ID:
+                options.show_record_id(e.get_bool().value);
+                break;
+            case MongoFindOption::SKIP:
+                options.skip(e.get_int64().value);
+                break;
+//            case MongoFindOption::SORT:
+//                options.sort(e.get_document()); // bson view or value
+            default:
+                break;
+        }
+    }
 }
 
 int main(int argc, char** argv)
@@ -369,6 +416,8 @@ void service_requests(mongocxx::client &connection) {
 
                 mongocxx::options::find options;
 
+                set_mongo_options(options, input["options"]);
+
                 if (input["multiple"] == "true")
                 {
                     try {
@@ -406,7 +455,7 @@ void service_requests(mongocxx::client &connection) {
                 {
                     stdx::optional<bsoncxx::document::value> document;
                     try {
-                        document = collection.find_one(bsoncxx::from_json(input["query"]));
+                        document = collection.find_one(bsoncxx::from_json(input["query"]), options);
                     } catch (mongocxx::query_exception err) {
                         std::cout << "Logic error when querying occurred" << std::endl;
 
@@ -416,7 +465,6 @@ void service_requests(mongocxx::client &connection) {
 
                         response = "{\"error\": \"Improper JSON query. Could not convert.\"}";
                     }
-
 
                     // Check if document is empty, if so return an empty object
                     if (document) {
