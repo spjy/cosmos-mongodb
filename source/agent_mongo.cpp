@@ -106,7 +106,7 @@ map<std::string, std::string> get_keys(std::string &request, const std::string v
 
 enum class MongoFindOption {
     BATCH_SIZE,
-    COALITION,
+    COLLATION,
     COMMENT,
     CURSOR_TYPE,
     HINT,
@@ -139,7 +139,7 @@ MongoFindOption option_table(std::string input) {
     str_to_lowercase(input);
 
     if (input == "batch_size") return MongoFindOption::BATCH_SIZE;
-    if (input == "coalition") return MongoFindOption::COALITION;
+    if (input == "coalition") return MongoFindOption::COLLATION;
     if (input == "comment") return MongoFindOption::COMMENT;
     if (input == "cursor_type") return MongoFindOption::CURSOR_TYPE;
     if (input == "hint") return MongoFindOption::HINT;
@@ -168,22 +168,24 @@ void set_mongo_options(mongocxx::options::find &options, std::string request) {
         std::string key = std::string(e.key());
 
         stdx::string_view field_key{e.key()};
-        bsoncxx::types::value ele_val{e.get_value()};
-
-        std::cout << e.get_int32().value << std::endl;
 
         MongoFindOption option = option_table(key);
 
         switch(option) {
             case MongoFindOption::BATCH_SIZE:
-                options.allow_partial_results(e.get_bool().value);
+                if (e.type() == type::k_bool) {
+                    options.allow_partial_results(e.get_bool().value);
+                }
                 break;
-            case MongoFindOption::COALITION:
-                options.batch_size(e.get_int32().value);
-                break;
+//            case MongoFindOption::COLLATION:
+//                options.batch_size(e.get_int32().value); // string view or value
+//                break;
             case MongoFindOption::LIMIT:
-            // check if int32_t and convert to int64_t to accept either one
-                options.limit(2);
+                if (e.type() == type::k_int32) {
+                    options.limit(e.get_int32().value);
+                } else if (e.type() == type::k_int64) {
+                    options.limit(e.get_int64().value);
+                }
                 break;
 //            case MongoFindOption::MAX:
 //                options.max(e.get_document()); // bson view or value
@@ -194,18 +196,28 @@ void set_mongo_options(mongocxx::options::find &options, std::string request) {
 //            case MongoFindOption::MIN:
 //                options.min(e.get_document()) // bson view or value
             case MongoFindOption::NO_CURSOR_TIMEOUT:
-                options.no_cursor_timeout(e.get_bool().value);
+                if (e.type() == type::k_bool) {
+                   options.no_cursor_timeout(e.get_bool().value);
+                }
                 break;
 //            case MongoFindOption::PROJECTION:
 //                options.projection() // bson view or value
             case MongoFindOption::RETURN_KEY:
-                options.return_key(e.get_bool().value);
+                if (e.type() == type::k_bool) {
+                    options.return_key(e.get_bool().value);
+                }
                 break;
             case MongoFindOption::SHOW_RECORD_ID:
-                options.show_record_id(e.get_bool().value);
+                if (e.type() == type::k_bool) {
+                    options.show_record_id(e.get_bool().value);
+                }
                 break;
             case MongoFindOption::SKIP:
-                options.skip(e.get_int64().value);
+                if (e.type() == type::k_int32) {
+                    options.skip(e.get_int32().value);
+                } else if (e.type() == type::k_int64) {
+                    options.skip(e.get_int64().value);
+                }
                 break;
 //            case MongoFindOption::SORT:
 //                options.sort(e.get_document()); // bson view or value
