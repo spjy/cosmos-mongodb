@@ -76,17 +76,23 @@ using namespace bsoncxx;
 using bsoncxx::builder::basic::kvp;
 using namespace bsoncxx::builder::stream;
 
-Agent *agent;
-std::ofstream file;
+static Agent *agent;
+static std::ofstream file;
 
 void collect_data_loop(mongocxx::client &connection);
 void service_requests(mongocxx::client &connection);
 map<std::string, std::string> get_keys(std::string &request, const std::string variable_delimiter, const std::string value_delimiter);
 
-std::thread collect_data_thread;
-std::thread service_requests_thread;
+static std::thread collect_data_thread;
+static std::thread service_requests_thread;
 
-// database=db?variable=value?variable=value
+//! Retrieve a request consisting of a list of key values and assign them to a map.
+ /*! Split up the list of key values by a specified delimiter, then split up the key values by a specified delimiter and assign the key to a map with its corresponding value.
+ \param request The request to assign to a map
+ \param variable_delimiter The delimiter that separates the list of key values
+ \param value_delimiter The delimiter that separates the key from the value
+ \return map<std::string, std::string>
+*/
 
 map<std::string, std::string> get_keys(std::string &request, const std::string variable_delimiter, const std::string value_delimiter) {
     // Delimit by key value pairs
@@ -104,30 +110,58 @@ map<std::string, std::string> get_keys(std::string &request, const std::string v
     return keys;
 }
 
+//! Options available to specify when querying a Mongo database
 enum class MongoFindOption {
+    //! If some shards are unavailable, it returns partial results if true.
+    ALLOW_PARTIAL_RESULTS,
+    //! The number of documents to return in the first batch.
     BATCH_SIZE,
+    //! Specify language specific rules for string comparison.
     COLLATION,
+    //! Comment to attach to query to assist in debugging
     COMMENT,
+    //! The cursor type
     CURSOR_TYPE,
+    //! Specify index name
     HINT,
+    //! The limit of how many documents you retrieve.
     LIMIT,
+    //! Get the upper bound for an index.
     MAX,
+    //! Max time for the server to wait on new documents to satisfy cursor query
     MAX_AWAIT_TIME,
+    //! Deprecated
     MAX_SCAN,
+    //! Max time for the oepration to run in milliseconds on the server
     MAX_TIME,
+    //! Inclusive lower bound for index
     MIN,
+    //! Prevent cursor from timing out server side due to activity.
     NO_CURSOR_TIMEOUT,
+    //! Projection which limits the returned fields for the matching documents
     PROJECTION,
+    //! Read preference
     READ_PREFERENCE,
+    //! Deprecated
     MODIFIERS,
+    //! Deprecated
     RETURN_KEY,
+    //! Whether to include record identifier in results
     SHOW_RECORD_ID,
+    //! Specify the number of documents to skip when querying
     SKIP,
+    //! Deprecated
     SNAPSHOT,
-    SORT
+    //! Order to return the matching documents.
+    SORT,
+    INVALID
 };
 
-
+//! Convert the characters in a given string to lowercase
+/*!
+ \param input The string to convert to lowercase
+ \return void
+*/
 void str_to_lowercase(std::string &input) {
     std::locale locale;
     for (std::string::size_type i = 0; i < input.length(); ++i) {
@@ -135,9 +169,15 @@ void str_to_lowercase(std::string &input) {
     }
 }
 
+//! Convert a given option and return the enumerated value
+/*!
+   \param input The option
+   \return The enumerated MongoDB find option
+*/
 MongoFindOption option_table(std::string input) {
     str_to_lowercase(input);
 
+    if (input == "allow_partial_results") return MongoFindOption::ALLOW_PARTIAL_RESULTS;
     if (input == "batch_size") return MongoFindOption::BATCH_SIZE;
     if (input == "coalition") return MongoFindOption::COLLATION;
     if (input == "comment") return MongoFindOption::COMMENT;
@@ -158,8 +198,15 @@ MongoFindOption option_table(std::string input) {
     if (input == "skip") return MongoFindOption::SKIP;
     if (input == "snapshot") return MongoFindOption::SNAPSHOT;
     if (input == "sort") return MongoFindOption::SORT;
+
+    return MongoFindOption::INVALID;
 }
 
+//! Set the MongoDB find options in the option class given a JSON object of options
+/*!
+  \param options The MongoDB find option class to append the options to
+  \param request A JSON object of wanted options
+*/
 void set_mongo_options(mongocxx::options::find &options, std::string request) {
     bsoncxx::document::value reqJSON = bsoncxx::from_json(request);
     bsoncxx::document::view opt { reqJSON.view() };
@@ -167,14 +214,19 @@ void set_mongo_options(mongocxx::options::find &options, std::string request) {
     for (auto e : opt) {
         std::string key = std::string(e.key());
 
-        stdx::string_view field_key{e.key()};
-
         MongoFindOption option = option_table(key);
 
         switch(option) {
+            case MongoFindOption::ALLOW_PARTIAL_RESULTS:
+                if (e.type() == type::k_int32) {
+                    options.allow_partial_results(e.get_int32().value);
+                } else if (e.type() == type::k_int64) {
+                    options.allow_partial_results(e.get_int64().value);
+                }
+                break;
             case MongoFindOption::BATCH_SIZE:
                 if (e.type() == type::k_bool) {
-                    options.allow_partial_results(e.get_bool().value);
+                    options.batch_size(e.get_bool().value);
                 }
                 break;
 //            case MongoFindOption::COLLATION:
@@ -240,57 +292,18 @@ int main(int argc, char** argv)
         exit(1);
     }
 
-    // add state of health (soh)
-    std::string soh = "{\"device_batt_current_000\"}";
-
-    // examples
-    // SOH for IMU temperature
-    soh = "{\"device_imu_temp_000\"}";
-
-    // SOH for location information (utc, position in ECI, attitude in ICRF)
-    soh = "{\"node_loc_utc\","
-          "\"node_loc_pos_eci\","
-          "\"node_loc_att_icrf\"}" ;
-
-    // TODO: create append function for soh to make it easier to add strings
-    // example: soh.append("node_loc_pos_eci");
-
-    // set the soh string
-    agent->set_sohstring(soh.c_str());
-    // Create a MongoDB instance
-
     mongocxx::instance instance {};
 
-    // Connect to a MongoDB URI
+    // Connect to a MongoDB URI and establish connection
     mongocxx::client connection {
         mongocxx::uri {
             "mongodb://192.168.150.9:27017/"
         }
     };
 
-    // Initialize the MongoDB session
-
+    // Create a thread for the data collection and service requests.
     collect_data_thread = thread(collect_data_loop, std::ref(connection));
     service_requests_thread = thread(service_requests, std::ref(connection));
-
-    // Start executing the agent
-    while(agent->running())
-    {
-
-        // while running, listen to the incoming events coming in from satellite
-        // store data into the collection, separated by the node coming in from a ring buffer
-        // at the same time be able to service requests from the listening client in the thread
-
-        // Specify and connect to a database and collection
-
-        // Start executing the agent
-        //        pos_eci.utc = currentmjd(0);
-        //        agent->cinfo->node.loc.pos.eci = pos_eci;
-        agent->cinfo->devspec.imu[0]->temp = 123;
-
-        //sleep for 1 sec
-        COSMOS_SLEEP(0.1);
-    }
 
     agent->shutdown();
     collect_data_thread.join();
@@ -299,6 +312,11 @@ int main(int argc, char** argv)
     return 0;
 }
 
+//! The method to handle incoming telemetry data to write it to the database
+/*!
+ *
+ * \param connection
+ */
 void collect_data_loop(mongocxx::client &connection)
 {
     size_t my_position = -1;
@@ -313,8 +331,7 @@ void collect_data_loop(mongocxx::client &connection)
                 my_position = 0;
             }
 
-            // if (agent->message_ring[my_position].meta.type < Agent::AgentMessage::BINARY) // collect heartbeat            //
-            // Check if type is a heartbeat and if the type is less than binary
+            // Check if type of message is a beat or state of health message
             if (agent->message_ring[my_position].meta.type == Agent::AgentMessage::BEAT || agent->message_ring[my_position].meta.type == Agent::AgentMessage::SOH)
             {
                 // First use reference to adata to check conditions
@@ -322,10 +339,11 @@ void collect_data_loop(mongocxx::client &connection)
 
                 // If no content in adata, don't continue or write to database
                 if (!padata->empty() && padata->front() == '{' && padata->back() == '}') {
-                    // Extract the name of the node
+                    // Extract the date and name of the node
                     std::string utc = json_extract_namedobject(agent->message_ring[my_position].jdata, "agent_utc");
                     std::string node = json_extract_namedobject(agent->message_ring[my_position].jdata, "agent_node");
 
+                    // Remove leading and trailing quotes around node
                     node.erase(0, 1);
                     node.pop_back();
 
@@ -337,7 +355,6 @@ void collect_data_loop(mongocxx::client &connection)
                     // Copy adata and manipulate string to add the agent_utc (date)
                     std::string adata = agent->message_ring[my_position].adata;
                     adata.pop_back();
-
                     std::string adata_with_date = adata.append(", \"agent_utc\" : " + utc + "}");
 
                     try {
@@ -366,13 +383,10 @@ void collect_data_loop(mongocxx::client &connection)
 void service_requests(mongocxx::client &connection) {
     while (agent->running()) {
         char ebuffer[6]="[NOK]";
-        int32_t iretn, nbytes;
+        int32_t iretn;
 
-        char request[AGENTMAXBUFFER + 1];
-        uint32_t i;
-
-        // Check if socket opened•••••••••
-        if ((iretn = socket_open(&agent->cinfo->agent[0].req, NetworkType::UDP, (char *)"", agent->cinfo->agent[0].beat.port, SOCKET_LISTEN, SOCKET_BLOCKING, 2000000)) < 0)
+        // Check if socket opened•
+        if ((iretn = socket_open(&agent->cinfo->agent[0].req, NetworkType::UDP, const_cast<char *>(""), agent->cinfo->agent[0].beat.port, SOCKET_LISTEN, SOCKET_BLOCKING, 2000000)) < 0)
         {
             return;
         }
@@ -380,7 +394,7 @@ void service_requests(mongocxx::client &connection) {
         // While agent is running
         while (agent->cinfo->agent[0].stateflag)
         {
-            char *bufferin, *bufferout, *empty = "";
+            char *bufferin, *bufferout;
 
             // If the socket opened, set the heartbeat port to cport
             agent->cinfo->agent[0].beat.port = agent->cinfo->agent[0].req.cport;
@@ -419,7 +433,6 @@ void service_requests(mongocxx::client &connection) {
 
                 // Convert the character
                 std::string req = bufferin;
-
                 map<std::string, std::string> input = get_keys(req, "?", "=");
 
                 mongocxx::collection collection = connection[input["database"]][input["collection"]];
@@ -428,7 +441,9 @@ void service_requests(mongocxx::client &connection) {
 
                 mongocxx::options::find options;
 
-                set_mongo_options(options, input["options"]);
+                if (!(input.find("options") == input.end())) {
+                    set_mongo_options(options, input["options"]);
+                }
 
                 if (input["multiple"] == "true")
                 {
@@ -447,7 +462,7 @@ void service_requests(mongocxx::client &connection) {
                             data.pop_back();
 
                             response = "[" + data + "]";
-                        } else {
+                        } else if (response.empty()) {
                             response = "[]";
                         }
                     } catch (mongocxx::logic_error err) {
@@ -486,7 +501,7 @@ void service_requests(mongocxx::client &connection) {
 
                         response = data;
 
-                    } else {
+                    } else if (response.empty()) {
                         response = "{}";
                     }
                 }
@@ -495,8 +510,9 @@ void service_requests(mongocxx::client &connection) {
                     response = ebuffer;
                 }
 
-                bufferout = (char *)response.c_str();
+                bufferout = const_cast<char *>(response.c_str());
                 sendto(agent->cinfo->agent[0].req.cudp, bufferout, strlen(bufferout), 0, (struct sockaddr *)&agent->cinfo->agent[0].req.caddr, *(socklen_t *)&agent->cinfo->agent[0].req.addrlen);
+                std::cout << strlen(bufferout) << std::endl;
             }
             COSMOS_SLEEP(.1);
             free(bufferin);
