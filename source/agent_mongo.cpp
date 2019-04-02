@@ -379,6 +379,8 @@ void collect_data_loop(mongocxx::client &connection)
                     adata.pop_back();
                     std::string adata_with_date = adata.append(", \"agent_utc\" : " + utc + "}");
 
+                    // *, exclude, include; command line, request, json file
+
                     try
                     {
                         // Convert JSON into BSON object to prepare for database insertion
@@ -426,7 +428,7 @@ void service_requests(mongocxx::client &connection)
         // While agent is running
         while (agent->cinfo->agent[0].stateflag)
         {
-            char *bufferin
+            char *bufferin, *bufferout;
 
             // If the socket opened, set the heartbeat port to cport
             agent->cinfo->agent[0].beat.port = agent->cinfo->agent[0].req.cport;
@@ -462,7 +464,7 @@ void service_requests(mongocxx::client &connection)
 
                 mongocxx::collection collection = connection[input["database"]][input["collection"]];
 
-                std::string bufferout;
+                std::string response;
 
                 mongocxx::options::find options;
 
@@ -487,22 +489,22 @@ void service_requests(mongocxx::client &connection)
 
                             data.pop_back();
 
-                            bufferout = "[" + data + "]";
-                        } else if (cursor.begin() == cursor.end() && bufferout.empty()) {
-                            bufferout = "[]";
+                            response = "[" + data + "]";
+                        } else if (cursor.begin() == cursor.end() && response.empty()) {
+                            response = "[]";
                         }
                     } catch (mongocxx::logic_error err) {
                         std::cout << "Logic error when querying occurred" << std::endl;
 
-                        bufferout = "{\"error\": \"Logic error within the query. Could not query database.\"}";
+                        response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
                     } catch (bsoncxx::exception err) {
                         std::cout << "Could not convert JSON" << std::endl;
 
-                        bufferout = "{\"error\": \"Improper JSON query. Could not convert.\"}";
+                        response = "{\"error\": \"Improper JSON query. Could not convert.\"}";
                     }
 
 
-                    std::cout << bufferout << std::endl;
+                    std::cout << response << std::endl;
                 }
                 else
                 {
@@ -514,12 +516,12 @@ void service_requests(mongocxx::client &connection)
                     {
                         std::cout << "Logic error when querying occurred" << std::endl;
 
-                        bufferout = "{\"error\": \"Logic error within the query. Could not query database.\"}";
+                        response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
                     } catch (bsoncxx::exception err)
                     {
                         std::cout << "Could not convert JSON" << std::endl;
 
-                        bufferout = "{\"error\": \"Improper JSON query. Could not convert.\"}";
+                        response = "{\"error\": \"Improper JSON query. Could not convert.\"}";
                     }
 
                     // Check if document is empty, if so return an empty object
@@ -529,31 +531,33 @@ void service_requests(mongocxx::client &connection)
 
                         data = bsoncxx::to_json(document.value());
 
-                        bufferout = data;
+                        response = data;
 
                     }
-                    else if (!document && bufferout.empty())
+                    else if (!document && response.empty())
                     {
-                        bufferout = "{}";
+                        response = "{}";
                     }
                 }
 
-                if (bufferout.empty())
+                if (response.empty())
                 {
-                    bufferout = ebuffer;
+                    response = ebuffer;
                 }
+
+                bufferout = const_cast<char *>(response.c_str());
 
                 sendto(
                     agent->cinfo->agent[0].req.cudp,
-                    &bufferout,
-                    bufferout.length(),
+                    bufferout,
+                    strlen(bufferout),
                     0,
                     reinterpret_cast<struct sockaddr *>(&agent->cinfo->agent[0].req.caddr),
                     *reinterpret_cast<socklen_t *>(&agent->cinfo->agent[0].req.addrlen)
                 );
 
                 free(bufferin);
-                bufferout = "";
+                free(bufferout);
             }
             COSMOS_SLEEP(.1);
         }
