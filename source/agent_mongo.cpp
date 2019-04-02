@@ -77,41 +77,10 @@ using bsoncxx::builder::basic::kvp;
 using namespace bsoncxx::builder::stream;
 
 static Agent *agent;
-static std::ofstream file;
-
-void collect_data_loop(mongocxx::client &connection);
-void service_requests(mongocxx::client &connection);
-map<std::string, std::string> get_keys(std::string &request, const std::string variable_delimiter, const std::string value_delimiter);
-
-static std::thread collect_data_thread;
-static std::thread service_requests_thread;
-
-//! Retrieve a request consisting of a list of key values and assign them to a map.
- /*! Split up the list of key values by a specified delimiter, then split up the key values by a specified delimiter and assign the key to a map with its corresponding value.
- \param request The request to assign to a map
- \param variable_delimiter The delimiter that separates the list of key values
- \param value_delimiter The delimiter that separates the key from the value
- \return map<std::string, std::string>
-*/
-
-map<std::string, std::string> get_keys(std::string &request, const std::string variable_delimiter, const std::string value_delimiter) {
-    // Delimit by key value pairs
-    vector<std::string> input = string_split(request, variable_delimiter);
-
-    map<std::string, std::string> keys;
-
-    // Delimit
-    for (vector<std::string>::iterator it = input.begin(); it != input.end(); ++it) {
-        vector<std::string> kv = string_split(*it, value_delimiter);
-
-        keys[kv[0]] = kv[1]; // Set the variable to the map key and assign the corresponding value
-    }
-
-    return keys;
-}
 
 //! Options available to specify when querying a Mongo database
-enum class MongoFindOption {
+enum class MongoFindOption
+{
     //! If some shards are unavailable, it returns partial results if true.
     ALLOW_PARTIAL_RESULTS,
     //! The number of documents to return in the first batch.
@@ -157,14 +126,52 @@ enum class MongoFindOption {
     INVALID
 };
 
+void collect_data_loop(mongocxx::client &connection);
+void service_requests(mongocxx::client &connection);
+map<std::string, std::string> get_keys(std::string &request, const std::string variable_delimiter, const std::string value_delimiter);
+void str_to_lowercase(std::string &input);
+MongoFindOption option_table(std::string input);
+void set_mongo_options(mongocxx::options::find &options, std::string request);
+
+static std::thread collect_data_thread;
+static std::thread service_requests_thread;
+
+//! Retrieve a request consisting of a list of key values and assign them to a map.
+ /*! Split up the list of key values by a specified delimiter, then split up the key values by a specified delimiter and assign the key to a map with its corresponding value.
+ \param request The request to assign to a map
+ \param variable_delimiter The delimiter that separates the list of key values
+ \param value_delimiter The delimiter that separates the key from the value
+ \return map<std::string, std::string>
+*/
+
+map<std::string, std::string> get_keys(std::string &request, const std::string variable_delimiter, const std::string value_delimiter)
+{
+    // Delimit by key value pairs
+    vector<std::string> input = string_split(request, variable_delimiter);
+
+    map<std::string, std::string> keys;
+
+    // Delimit
+    for (vector<std::string>::iterator it = input.begin(); it != input.end(); ++it)
+    {
+        vector<std::string> kv = string_split(*it, value_delimiter);
+
+        keys[kv[0]] = kv[1]; // Set the variable to the map key and assign the corresponding value
+    }
+
+    return keys;
+}
+
 //! Convert the characters in a given string to lowercase
 /*!
  \param input The string to convert to lowercase
  \return void
 */
-void str_to_lowercase(std::string &input) {
+void str_to_lowercase(std::string &input)
+{
     std::locale locale;
-    for (std::string::size_type i = 0; i < input.length(); ++i) {
+    for (std::string::size_type i = 0; i < input.length(); ++i)
+    {
         std::tolower(input[i], locale);
     }
 }
@@ -174,7 +181,8 @@ void str_to_lowercase(std::string &input) {
    \param input The option
    \return The enumerated MongoDB find option
 */
-MongoFindOption option_table(std::string input) {
+MongoFindOption option_table(std::string input)
+{
     str_to_lowercase(input);
 
     if (input == "allow_partial_results") return MongoFindOption::ALLOW_PARTIAL_RESULTS;
@@ -211,16 +219,20 @@ void set_mongo_options(mongocxx::options::find &options, std::string request) {
     bsoncxx::document::value reqJSON = bsoncxx::from_json(request);
     bsoncxx::document::view opt { reqJSON.view() };
 
-    for (auto e : opt) {
+    for (auto e : opt)
+    {
         std::string key = std::string(e.key());
 
         MongoFindOption option = option_table(key);
 
         switch(option) {
             case MongoFindOption::ALLOW_PARTIAL_RESULTS:
-                if (e.type() == type::k_int32) {
+                if (e.type() == type::k_int32)
+                {
                     options.allow_partial_results(e.get_int32().value);
-                } else if (e.type() == type::k_int64) {
+                }
+                else if (e.type() == type::k_int64)
+                {
                     options.allow_partial_results(e.get_int64().value);
                 }
                 break;
@@ -233,9 +245,12 @@ void set_mongo_options(mongocxx::options::find &options, std::string request) {
 //                options.batch_size(e.get_int32().value); // string view or value
 //                break;
             case MongoFindOption::LIMIT:
-                if (e.type() == type::k_int32) {
+                if (e.type() == type::k_int32)
+                {
                     options.limit(e.get_int32().value);
-                } else if (e.type() == type::k_int64) {
+                }
+                else if (e.type() == type::k_int64)
+                {
                     options.limit(e.get_int64().value);
                 }
                 break;
@@ -283,7 +298,7 @@ int main(int argc, char** argv)
 {
     cout << "Agent Mongo" << endl;
     std::string nodename = "cubesat1";
-    std::string agentname = "mongo"; //name of the agent that the request is directed to
+    std::string agentname = "mongo";
 
     agent = new Agent(nodename, agentname, 1, AGENTMAXBUFFER, false, 20301);
 
@@ -305,6 +320,12 @@ int main(int argc, char** argv)
     collect_data_thread = thread(collect_data_loop, std::ref(connection));
     service_requests_thread = thread(service_requests, std::ref(connection));
 
+    while(agent->running())
+    {
+        // Sleep for 1 sec
+        COSMOS_SLEEP(0.1);
+    }
+
     agent->shutdown();
     collect_data_thread.join();
     service_requests_thread.join();
@@ -315,11 +336,11 @@ int main(int argc, char** argv)
 //! The method to handle incoming telemetry data to write it to the database
 /*!
  *
- * \param connection
+ * \param connection MongoDB connection instance
  */
 void collect_data_loop(mongocxx::client &connection)
 {
-    size_t my_position = -1;
+    size_t my_position = static_cast<size_t>(-1);
     while (agent->running())
     {
         // Collect new data
@@ -338,7 +359,8 @@ void collect_data_loop(mongocxx::client &connection)
                 std::string *padata = &agent->message_ring[my_position].adata;
 
                 // If no content in adata, don't continue or write to database
-                if (!padata->empty() && padata->front() == '{' && padata->back() == '}') {
+                if (!padata->empty() && padata->front() == '{' && padata->back() == '}')
+                {
                     // Extract the date and name of the node
                     std::string utc = json_extract_namedobject(agent->message_ring[my_position].jdata, "agent_utc");
                     std::string node = json_extract_namedobject(agent->message_ring[my_position].jdata, "agent_node");
@@ -357,19 +379,22 @@ void collect_data_loop(mongocxx::client &connection)
                     adata.pop_back();
                     std::string adata_with_date = adata.append(", \"agent_utc\" : " + utc + "}");
 
-                    try {
+                    try
+                    {
                         // Convert JSON into BSON object to prepare for database insertion
                         value = bsoncxx::from_json(adata_with_date);
                     } catch (const bsoncxx::exception err) {
                         std::cout << "Error converting to BSON from JSON" << std::endl;
                     }
 
-                    try {
+                    try
+                    {
                         // Insert BSON object into collection specified
                         auto insert = collection.insert_one(value);
 
                         std::cout << "Inserted adata into collection " << node << std::endl;
-                    } catch (const mongocxx::bulk_write_exception err) {
+                    } catch (const mongocxx::bulk_write_exception err)
+                    {
                         cout << "Error writing to database." << endl;
                     }
                 }
@@ -380,8 +405,15 @@ void collect_data_loop(mongocxx::client &connection)
     return;
 }
 
-void service_requests(mongocxx::client &connection) {
-    while (agent->running()) {
+//! The method to handle incoming requests to query the database
+/*!
+ *
+ * \param connection MongoDB connection instance
+ */
+void service_requests(mongocxx::client &connection)
+{
+    while (agent->running())
+    {
         char ebuffer[6]="[NOK]";
         int32_t iretn;
 
@@ -394,28 +426,28 @@ void service_requests(mongocxx::client &connection) {
         // While agent is running
         while (agent->cinfo->agent[0].stateflag)
         {
-            char *bufferin, *bufferout;
+            char *bufferin
 
             // If the socket opened, set the heartbeat port to cport
             agent->cinfo->agent[0].beat.port = agent->cinfo->agent[0].req.cport;
 
             // Check buffer size
 
-            if ((bufferin = (char *) calloc(1, agent->cinfo->agent[0].beat.bsz)) == NULL)
+            if ((bufferin = reinterpret_cast<char *> (calloc(1, agent->cinfo->agent[0].beat.bsz))) == NULL)
             {
                 iretn = -errno;
                 return;
             }
 
             // Receiving socket data
-            iretn = recvfrom(
-                agent->cinfo->agent[0].req.cudp,
+            iretn = static_cast<int32_t>(recvfrom(
+                static_cast<int32_t>(agent->cinfo->agent[0].req.cudp),
                 bufferin,
                 agent->cinfo->agent[0].beat.bsz,
                 0,
-                (struct sockaddr *)&agent->cinfo->agent[0].req.caddr,
-                (socklen_t *)&agent->cinfo->agent[0].req.addrlen
-            );
+                reinterpret_cast<struct sockaddr *>(&agent->cinfo->agent[0].req.caddr),
+                reinterpret_cast<socklen_t *>(&agent->cinfo->agent[0].req.addrlen)
+            ));
 
             std::cout << "Receiving " << bufferin << std::endl;
 
@@ -423,13 +455,6 @@ void service_requests(mongocxx::client &connection) {
             {
                 std::cout << "Received request: " << bufferin << std::endl;
                 bsoncxx::builder::stream::document document {};
-                // variable=value?variable=value?variable=value
-                // database=db?collection=agent?filter={"temperature":"75","acceleration":"2"}
-
-                // possible variables to pass
-                // database, collection, query, options (differ between find_one and find)
-                // delimit first by question marks, then convert each key value pair into a map
-                // then for the filter, permanent simulation of neutron1
 
                 // Convert the character
                 std::string req = bufferin;
@@ -437,7 +462,7 @@ void service_requests(mongocxx::client &connection) {
 
                 mongocxx::collection collection = connection[input["database"]][input["collection"]];
 
-                std::string response;
+                std::string bufferout;
 
                 mongocxx::options::find options;
 
@@ -447,7 +472,8 @@ void service_requests(mongocxx::client &connection) {
 
                 if (input["multiple"] == "true")
                 {
-                    try {
+                    try
+                    {
                         // Query the database based on the filter
                         mongocxx::cursor cursor = collection.find(bsoncxx::from_json(input["query"]), options);
 
@@ -461,61 +487,75 @@ void service_requests(mongocxx::client &connection) {
 
                             data.pop_back();
 
-                            response = "[" + data + "]";
-                        } else if (response.empty()) {
-                            response = "[]";
+                            bufferout = "[" + data + "]";
+                        } else if (cursor.begin() == cursor.end() && bufferout.empty()) {
+                            bufferout = "[]";
                         }
                     } catch (mongocxx::logic_error err) {
                         std::cout << "Logic error when querying occurred" << std::endl;
 
-                        response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
+                        bufferout = "{\"error\": \"Logic error within the query. Could not query database.\"}";
                     } catch (bsoncxx::exception err) {
                         std::cout << "Could not convert JSON" << std::endl;
 
-                        response = "{\"error\": \"Improper JSON query. Could not convert.\"}";
+                        bufferout = "{\"error\": \"Improper JSON query. Could not convert.\"}";
                     }
 
 
-                    std::cout << response << std::endl;
+                    std::cout << bufferout << std::endl;
                 }
                 else
                 {
                     stdx::optional<bsoncxx::document::value> document;
-                    try {
+                    try
+                    {
                         document = collection.find_one(bsoncxx::from_json(input["query"]), options);
-                    } catch (mongocxx::query_exception err) {
+                    } catch (mongocxx::query_exception err)
+                    {
                         std::cout << "Logic error when querying occurred" << std::endl;
 
-                        response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
-                    } catch (bsoncxx::exception err) {
+                        bufferout = "{\"error\": \"Logic error within the query. Could not query database.\"}";
+                    } catch (bsoncxx::exception err)
+                    {
                         std::cout << "Could not convert JSON" << std::endl;
 
-                        response = "{\"error\": \"Improper JSON query. Could not convert.\"}";
+                        bufferout = "{\"error\": \"Improper JSON query. Could not convert.\"}";
                     }
 
                     // Check if document is empty, if so return an empty object
-                    if (document) {
+                    if (document)
+                    {
                         std::string data;
 
                         data = bsoncxx::to_json(document.value());
 
-                        response = data;
+                        bufferout = data;
 
-                    } else if (response.empty()) {
-                        response = "{}";
+                    }
+                    else if (!document && bufferout.empty())
+                    {
+                        bufferout = "{}";
                     }
                 }
 
-                if (response.empty()) {
-                    response = ebuffer;
+                if (bufferout.empty())
+                {
+                    bufferout = ebuffer;
                 }
 
-                bufferout = const_cast<char *>(response.c_str());
-                sendto(agent->cinfo->agent[0].req.cudp, bufferout, strlen(bufferout), 0, (struct sockaddr *)&agent->cinfo->agent[0].req.caddr, *(socklen_t *)&agent->cinfo->agent[0].req.addrlen);
-                std::cout << strlen(bufferout) << std::endl;
+                sendto(
+                    agent->cinfo->agent[0].req.cudp,
+                    &bufferout,
+                    bufferout.length(),
+                    0,
+                    reinterpret_cast<struct sockaddr *>(&agent->cinfo->agent[0].req.caddr),
+                    *reinterpret_cast<socklen_t *>(&agent->cinfo->agent[0].req.addrlen)
+                );
+
+                free(bufferin);
+                bufferout = "";
             }
             COSMOS_SLEEP(.1);
-            free(bufferin);
         }
     }
 }
