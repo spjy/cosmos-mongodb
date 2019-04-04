@@ -47,7 +47,6 @@
 #include <string>
 #include <vector>
 #include <map>
-#include <locale>
 
 #include <bsoncxx/document/value.hpp>
 #include <bsoncxx/document/view.hpp>
@@ -126,7 +125,7 @@ enum class MongoFindOption
     INVALID
 };
 
-void collect_data_loop(mongocxx::client &connection);
+void collect_data_loop(mongocxx::client &connection, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes);
 void service_requests(mongocxx::client &connection);
 map<std::string, std::string> get_keys(std::string &request, const std::string variable_delimiter, const std::string value_delimiter);
 void str_to_lowercase(std::string &input);
@@ -135,6 +134,38 @@ void set_mongo_options(mongocxx::options::find &options, std::string request);
 
 static std::thread collect_data_thread;
 static std::thread service_requests_thread;
+
+bool vector_contains(std::vector<std::string> &input_vector, std::string value) {
+    for (vector<std::string>::iterator it = input_vector.begin(); it != input_vector.end(); ++it)
+    {
+        if (*it == value) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool whitelisted_node(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &node) {
+    bool whitelisted = false;
+
+    // Check if the node is on the included list, if so return true
+
+    // if not, continue and check if included list contains the wildcard
+
+    // if it contains the wildcard, check if the node is on the excluded list
+
+    if (vector_contains(included_nodes, node)) {
+        whitelisted = true;
+    } else {
+        if (vector_contains(excluded_nodes, node)) {
+            whitelisted = false;
+        } else if (vector_contains(included_nodes, "*")) {
+            whitelisted = true;
+        }
+    }
+
+    return whitelisted;
+}
 
 //! Retrieve a request consisting of a list of key values and assign them to a map.
  /*! Split up the list of key values by a specified delimiter, then split up the key values by a specified delimiter and assign the key to a map with its corresponding value.
@@ -300,6 +331,44 @@ int main(int argc, char** argv)
     std::string nodename = "cubesat1";
     std::string agentname = "mongo";
 
+    std::vector<std::string> included_nodes;
+    std::vector<std::string> excluded_nodes;
+
+    for (int i = 1; i < argc; i++) {
+        if (argv[i][0] == '-' && argv[i][1] == '-') {
+            if (argv[i] == "--include") {
+                included_nodes = string_split(argv[i + 1], ",");
+            } else if (argv[i] == "--exclude") {
+                excluded_nodes = string_split(argv[i + 1], ",");
+            }
+        }
+    }
+
+    if (included_nodes.empty() && excluded_nodes.empty()) {
+        std::ifstream nodes("nodes.json", std::ifstream::binary);
+
+        if (nodes.is_open()) {
+            std::stringstream buffer;
+            buffer << nodes.rdbuf();
+
+            bsoncxx::document::value reqJSON = bsoncxx::from_json(buffer.str());
+            bsoncxx::document::view opt { reqJSON.view() };
+
+            for (auto e : opt)
+            {
+
+            }
+        }
+    }
+
+    if (included_nodes.empty()) {
+        included_nodes.push_back("*");
+    }
+
+    if (excluded_nodes.empty()) {
+        excluded_nodes.push_back("*");
+    }
+
     agent = new Agent(nodename, agentname, 1, AGENTMAXBUFFER, false, 20301);
 
     if (agent->cinfo == nullptr) {
@@ -317,7 +386,7 @@ int main(int argc, char** argv)
     };
 
     // Create a thread for the data collection and service requests.
-    collect_data_thread = thread(collect_data_loop, std::ref(connection));
+    collect_data_thread = thread(collect_data_loop, std::ref(connection), std::ref(included_nodes), std::ref(excluded_nodes));
     service_requests_thread = thread(service_requests, std::ref(connection));
 
     while(agent->running())
@@ -338,9 +407,20 @@ int main(int argc, char** argv)
  *
  * \param connection MongoDB connection instance
  */
-void collect_data_loop(mongocxx::client &connection)
+void collect_data_loop(mongocxx::client &connection, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes)
 {
     size_t my_position = static_cast<size_t>(-1);
+
+    // read from cmd line arguments by default, if none are given look for agents.json, parse, look for keys
+    /*
+     * {
+     *  include: ['*']
+     *  exclude: ['cubesat1']
+     * }
+     */
+
+
+
     while (agent->running())
     {
         // Collect new data
@@ -361,8 +441,7 @@ void collect_data_loop(mongocxx::client &connection)
                 // If no content in adata, don't continue or write to database
                 if (!padata->empty() && padata->front() == '{' && padata->back() == '}')
                 {
-                    // Extract the date and name of the node
-                    std::string utc = json_extract_namedobject(agent->message_ring[my_position].jdata, "agent_utc");
+                    // Extract node from jdata
                     std::string node = json_extract_namedobject(agent->message_ring[my_position].jdata, "agent_node");
 
                     // Remove leading and trailing quotes around node
@@ -370,34 +449,37 @@ void collect_data_loop(mongocxx::client &connection)
                     node.pop_back();
 
                     // Connect to the database and store in the collection of the node name
-                    auto collection = connection["db"][node]; // store by node
+                    if (whitelisted_node(included_nodes, excluded_nodes, node)) {
+                        auto collection = connection["db"][node]; // store by node
 
-                    bsoncxx::document::view_or_value value;
+                        bsoncxx::document::view_or_value value;
 
-                    // Copy adata and manipulate string to add the agent_utc (date)
-                    std::string adata = agent->message_ring[my_position].adata;
-                    adata.pop_back();
-                    std::string adata_with_date = adata.append(", \"agent_utc\" : " + utc + "}");
+                        // Extract the date and name of the node
+                        std::string utc = json_extract_namedobject(agent->message_ring[my_position].jdata, "agent_utc");
 
-                    // *, exclude, include; command line, request, json file
+                        // Copy adata and manipulate string to add the agent_utc (date)
+                        std::string adata = agent->message_ring[my_position].adata;
+                        adata.pop_back();
+                        std::string adata_with_date = adata.append(", \"agent_utc\" : " + utc + "}");
 
-                    try
-                    {
-                        // Convert JSON into BSON object to prepare for database insertion
-                        value = bsoncxx::from_json(adata_with_date);
-                    } catch (const bsoncxx::exception err) {
-                        std::cout << "Error converting to BSON from JSON" << std::endl;
-                    }
+                        try
+                        {
+                            // Convert JSON into BSON object to prepare for database insertion
+                            value = bsoncxx::from_json(adata_with_date);
+                        } catch (const bsoncxx::exception err) {
+                            std::cout << "Error converting to BSON from JSON" << std::endl;
+                        }
 
-                    try
-                    {
-                        // Insert BSON object into collection specified
-                        auto insert = collection.insert_one(value);
+                        try
+                        {
+                            // Insert BSON object into collection specified
+                            auto insert = collection.insert_one(value);
 
-                        std::cout << "Inserted adata into collection " << node << std::endl;
-                    } catch (const mongocxx::bulk_write_exception err)
-                    {
-                        cout << "Error writing to database." << endl;
+                            std::cout << "Inserted adata into collection " << node << std::endl;
+                        } catch (const mongocxx::bulk_write_exception err)
+                        {
+                            cout << "Error writing to database." << endl;
+                        }
                     }
                 }
             }
