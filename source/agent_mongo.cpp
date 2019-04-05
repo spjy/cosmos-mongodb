@@ -40,6 +40,7 @@
 #include "support/jsondef.h"
 #include "support/jsonlib.h"
 #include <string.h>
+#include <cstring>
 #include <iterator>
 #include <iostream>
 #include <fstream>
@@ -47,10 +48,12 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <locale>
 
 #include <bsoncxx/document/value.hpp>
 #include <bsoncxx/document/view.hpp>
 #include <bsoncxx/array/element.hpp>
+#include <bsoncxx/string/to_string.hpp>
 #include <bsoncxx/builder/stream/document.hpp>
 #include <bsoncxx/builder/basic/document.hpp>
 #include <bsoncxx/builder/concatenate.hpp>
@@ -179,7 +182,6 @@ map<std::string, std::string> get_keys(std::string &request, const std::string v
 {
     // Delimit by key value pairs
     vector<std::string> input = string_split(request, variable_delimiter);
-
     map<std::string, std::string> keys;
 
     // Delimit
@@ -247,8 +249,8 @@ MongoFindOption option_table(std::string input)
   \param request A JSON object of wanted options
 */
 void set_mongo_options(mongocxx::options::find &options, std::string request) {
-    bsoncxx::document::value reqJSON = bsoncxx::from_json(request);
-    bsoncxx::document::view opt { reqJSON.view() };
+    bsoncxx::document::value json = bsoncxx::from_json(request);
+    bsoncxx::document::view opt { json.view() };
 
     for (auto e : opt)
     {
@@ -333,41 +335,72 @@ int main(int argc, char** argv)
 
     std::vector<std::string> included_nodes;
     std::vector<std::string> excluded_nodes;
+    std::string nodes_path;
 
+    // Get command line arguments for including/excluding certain nodes
+    // If include nodes by file, include path to file through --whitelist_file_path
     for (int i = 1; i < argc; i++) {
-        if (argv[i][0] == '-' && argv[i][1] == '-') {
-            if (argv[i] == "--include") {
+        // Look for flags and see if the value exists
+        if (argv[i][0] == '-' && argv[i][1] == '-' && argv[i + 1] != nullptr) {
+            if (strncmp(argv[i], "--include", sizeof(argv[i]) / sizeof(argv[i][0])) == 0) {
                 included_nodes = string_split(argv[i + 1], ",");
-            } else if (argv[i] == "--exclude") {
+            } else if (strncmp(argv[i], "--exclude", sizeof(argv[i]) / sizeof(argv[i][0])) == 0) {
                 excluded_nodes = string_split(argv[i + 1], ",");
+            } else if (strncmp(argv[i], "--whitelist_file_path", sizeof(argv[i]) / sizeof(argv[i][0])) == 0) {
+                nodes_path = argv[i + 1];
             }
         }
     }
 
-    if (included_nodes.empty() && excluded_nodes.empty()) {
-        std::ifstream nodes("nodes.json", std::ifstream::binary);
+    if (included_nodes.empty() && excluded_nodes.empty() && !nodes_path.empty()) {
+        // Open file provided by the command line arg
+        std::ifstream nodes;
+        nodes.open(nodes_path, std::ifstream::binary);
 
         if (nodes.is_open()) {
+            // Get string buffer and extract array values
             std::stringstream buffer;
             buffer << nodes.rdbuf();
 
-            bsoncxx::document::value reqJSON = bsoncxx::from_json(buffer.str());
-            bsoncxx::document::view opt { reqJSON.view() };
+            bsoncxx::document::value json = bsoncxx::from_json(buffer.str());
+            bsoncxx::document::view opt { json.view() };
 
-            for (auto e : opt)
-            {
+            bsoncxx::document::element include {
+                opt["include"]
+            };
 
+            bsoncxx::document::element exclude {
+                opt["exclude"]
+            };
+
+            bsoncxx::array::view includesArray {include.get_array().value};
+            bsoncxx::array::view excludesArray {exclude.get_array().value};
+
+            for (bsoncxx::array::element e : includesArray) {
+                included_nodes.push_back(bsoncxx::string::to_string(e.get_utf8().value));
+            }
+
+            for (bsoncxx::array::element e : excludesArray) {
+                excluded_nodes.push_back(bsoncxx::string::to_string(e.get_utf8().value));
             }
         }
     }
 
-    if (included_nodes.empty()) {
-        included_nodes.push_back("*");
+    cout << "Including nodes: ";
+
+    for (std::string s : included_nodes) {
+        cout << s + " ";
     }
 
-    if (excluded_nodes.empty()) {
-        excluded_nodes.push_back("*");
+    cout << endl;
+
+    cout << "Excluding nodes: ";
+
+    for (std::string s : excluded_nodes) {
+        cout << s + " ";
     }
+
+    cout << endl;
 
     agent = new Agent(nodename, agentname, 1, AGENTMAXBUFFER, false, 20301);
 
@@ -410,16 +443,6 @@ int main(int argc, char** argv)
 void collect_data_loop(mongocxx::client &connection, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes)
 {
     size_t my_position = static_cast<size_t>(-1);
-
-    // read from cmd line arguments by default, if none are given look for agents.json, parse, look for keys
-    /*
-     * {
-     *  include: ['*']
-     *  exclude: ['cubesat1']
-     * }
-     */
-
-
 
     while (agent->running())
     {
