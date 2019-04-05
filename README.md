@@ -25,7 +25,8 @@ git clone https://github.com/spjy/cosmos-mongodb.git
 * --exclude
   * A comma delimited list of nodes as strings to save data to the database.
 
-**Example**:
+**Examples**:
+
 Including and excluding certain nodes:
 ```bash
 --include "cubesat1,hsflpc-03,neutron1" --exclude "node1,node-arduino"
