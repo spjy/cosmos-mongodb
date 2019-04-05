@@ -44,6 +44,8 @@ Specifying nodes from a file:
 
 ### Whitelist File Format
 
+The whitelist file is a JSON file and will be imported using the command line option as demonstrated above.
+
 Including and excluding certain nodes:
 ```json
 {
