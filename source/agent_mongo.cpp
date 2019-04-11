@@ -49,6 +49,7 @@
 #include <vector>
 #include <map>
 #include <locale>
+#include <memory>
 
 #include <bsoncxx/document/value.hpp>
 #include <bsoncxx/document/view.hpp>
@@ -74,11 +75,24 @@
 #include <mongocxx/cursor.hpp>
 #include <mongocxx/options/find.hpp>
 
+#include <Simple-WebSocket-Server-master/server_ws.hpp>
+
 using namespace bsoncxx;
 using bsoncxx::builder::basic::kvp;
 using namespace bsoncxx::builder::stream;
 
 static Agent *agent;
+
+static mongocxx::instance instance {};
+
+// Connect to a MongoDB URI and establish connection
+static mongocxx::client connection {
+    mongocxx::uri {
+        "mongodb://192.168.150.9:27017/"
+    }
+};
+
+using WsServer = SimpleWeb::SocketServer<SimpleWeb::WS>;
 
 //! Options available to specify when querying a Mongo database
 enum class MongoFindOption
@@ -128,8 +142,8 @@ enum class MongoFindOption
     INVALID
 };
 
-void collect_data_loop(mongocxx::client &connection, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes);
-void service_requests(mongocxx::client &connection);
+void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes);
+void service_requests();
 map<std::string, std::string> get_keys(std::string &request, const std::string variable_delimiter, const std::string value_delimiter);
 void str_to_lowercase(std::string &input);
 MongoFindOption option_table(std::string input);
@@ -178,7 +192,7 @@ bool whitelisted_node(std::vector<std::string> &included_nodes, std::vector<std:
  \return map<std::string, std::string>
 */
 
-map<std::string, std::string> get_keys(std::string &request, const std::string variable_delimiter, const std::string value_delimiter)
+map<std::string, std::string> get_keys(const std::string &request, const std::string variable_delimiter, const std::string value_delimiter)
 {
     // Delimit by key value pairs
     vector<std::string> input = string_split(request, variable_delimiter);
@@ -337,6 +351,104 @@ int main(int argc, char** argv)
     std::vector<std::string> excluded_nodes;
     std::string nodes_path;
 
+    WsServer websockets;
+
+    websockets.config.port = 8080;
+
+    auto &ws = websockets.endpoint["/api"];
+
+    ws.on_message = [](std::shared_ptr<WsServer::Connection> ws_connection, std::shared_ptr<WsServer::InMessage> ws_message) {
+        std::string message = ws_message->string();
+        std::cout << "Received request: " << message << std::endl;
+
+        bsoncxx::builder::stream::document document {};
+
+        map<std::string, std::string> input = get_keys(message, "?", "=");
+
+        mongocxx::collection collection = connection[input["database"]][input["collection"]];
+
+        std::string response;
+
+        mongocxx::options::find options;
+
+        if (!(input.find("options") == input.end())) {
+            set_mongo_options(options, input["options"]);
+        }
+
+        if (input["multiple"] == "true")
+        {
+            try
+            {
+                // Query the database based on the filter
+                mongocxx::cursor cursor = collection.find(bsoncxx::from_json(input["query"]), options);
+
+                // Check if the returned cursor is empty, if so return an empty array
+                if (!(cursor.begin() == cursor.end())) {
+                    std::string data;
+
+                    for (auto document : cursor) {
+                        data.insert(data.size(), bsoncxx::to_json(document) + ",");
+                    }
+
+                    data.pop_back();
+
+                    response = "[" + data + "]";
+                } else if (cursor.begin() == cursor.end() && response.empty()) {
+                    response = "[]";
+                }
+            } catch (mongocxx::logic_error err) {
+                std::cout << "Logic error when querying occurred" << std::endl;
+
+                response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
+            } catch (bsoncxx::exception err) {
+                std::cout << "Could not convert JSON" << std::endl;
+
+                response = "{\"error\": \"Improper JSON query. Could not convert.\"}";
+            }
+
+
+            std::cout << response << std::endl;
+        }
+        else
+        {
+            stdx::optional<bsoncxx::document::value> document;
+            try
+            {
+                document = collection.find_one(bsoncxx::from_json(input["query"]), options);
+            } catch (mongocxx::query_exception err)
+            {
+                std::cout << "Logic error when querying occurred" << std::endl;
+
+                response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
+            } catch (bsoncxx::exception err)
+            {
+                std::cout << "Could not convert JSON" << std::endl;
+
+                response = "{\"error\": \"Improper JSON query. Could not convert.\"}";
+            }
+
+            // Check if document is empty, if so return an empty object
+            if (document)
+            {
+                std::string data;
+
+                data = bsoncxx::to_json(document.value());
+
+                response = data;
+
+            }
+            else if (!document && response.empty())
+            {
+                response = "{}";
+            }
+        }
+
+        if (response.empty())
+        {
+            response = "[NOK]";
+        }
+    };
+
     // Get command line arguments for including/excluding certain nodes
     // If include nodes by file, include path to file through --whitelist_file_path
     for (int i = 1; i < argc; i++) {
@@ -409,18 +521,9 @@ int main(int argc, char** argv)
         exit(1);
     }
 
-    mongocxx::instance instance {};
-
-    // Connect to a MongoDB URI and establish connection
-    mongocxx::client connection {
-        mongocxx::uri {
-            "mongodb://192.168.150.9:27017/"
-        }
-    };
-
     // Create a thread for the data collection and service requests.
-    collect_data_thread = thread(collect_data_loop, std::ref(connection), std::ref(included_nodes), std::ref(excluded_nodes));
-    service_requests_thread = thread(service_requests, std::ref(connection));
+    collect_data_thread = thread(collect_data_loop, std::ref(included_nodes), std::ref(excluded_nodes));
+    service_requests_thread = thread(service_requests);
 
     while(agent->running())
     {
@@ -440,7 +543,7 @@ int main(int argc, char** argv)
  *
  * \param connection MongoDB connection instance
  */
-void collect_data_loop(mongocxx::client &connection, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes)
+void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes)
 {
     size_t my_position = static_cast<size_t>(-1);
 
@@ -512,159 +615,108 @@ void collect_data_loop(mongocxx::client &connection, std::vector<std::string> &i
     return;
 }
 
+void handle_request(const std::string &message) {
+    std::cout << "Received request: " << message << std::endl;
+    bsoncxx::builder::stream::document document {};
+
+    map<std::string, std::string> input = get_keys(message, "?", "=");
+
+    mongocxx::collection collection = connection[input["database"]][input["collection"]];
+
+    std::string response;
+
+    mongocxx::options::find options;
+
+    if (!(input.find("options") == input.end())) {
+        set_mongo_options(options, input["options"]);
+    }
+
+    if (input["multiple"] == "true")
+    {
+        try
+        {
+            // Query the database based on the filter
+            mongocxx::cursor cursor = collection.find(bsoncxx::from_json(input["query"]), options);
+
+            // Check if the returned cursor is empty, if so return an empty array
+            if (!(cursor.begin() == cursor.end())) {
+                std::string data;
+
+                for (auto document : cursor) {
+                    data.insert(data.size(), bsoncxx::to_json(document) + ",");
+                }
+
+                data.pop_back();
+
+                response = "[" + data + "]";
+            } else if (cursor.begin() == cursor.end() && response.empty()) {
+                response = "[]";
+            }
+        } catch (mongocxx::logic_error err) {
+            std::cout << "Logic error when querying occurred" << std::endl;
+
+            response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
+        } catch (bsoncxx::exception err) {
+            std::cout << "Could not convert JSON" << std::endl;
+
+            response = "{\"error\": \"Improper JSON query. Could not convert.\"}";
+        }
+
+
+        std::cout << response << std::endl;
+    }
+    else
+    {
+        stdx::optional<bsoncxx::document::value> document;
+        try
+        {
+            document = collection.find_one(bsoncxx::from_json(input["query"]), options);
+        } catch (mongocxx::query_exception err)
+        {
+            std::cout << "Logic error when querying occurred" << std::endl;
+
+            response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
+        } catch (bsoncxx::exception err)
+        {
+            std::cout << "Could not convert JSON" << std::endl;
+
+            response = "{\"error\": \"Improper JSON query. Could not convert.\"}";
+        }
+
+        // Check if document is empty, if so return an empty object
+        if (document)
+        {
+            std::string data;
+
+            data = bsoncxx::to_json(document.value());
+
+            response = data;
+
+        }
+        else if (!document && response.empty())
+        {
+            response = "{}";
+        }
+    }
+
+    if (response.empty())
+    {
+        response = "[NOK]";
+    }
+
+
+}
+
 //! The method to handle incoming requests to query the database
 /*!
  *
  * \param connection MongoDB connection instance
  */
-void service_requests(mongocxx::client &connection)
+void service_requests()
 {
-    while (agent->running())
-    {
-        char ebuffer[6]="[NOK]";
-        int32_t iretn;
-
-        // Check if socket opened•
-        if ((iretn = socket_open(&agent->cinfo->agent[0].req, NetworkType::UDP, const_cast<char *>(""), agent->cinfo->agent[0].beat.port, SOCKET_LISTEN, SOCKET_BLOCKING, 2000000)) < 0)
-        {
-            return;
-        }
-
-        // While agent is running
-        while (agent->cinfo->agent[0].stateflag)
-        {
-            char *bufferin, *bufferout;
-
-            // If the socket opened, set the heartbeat port to cport
-            agent->cinfo->agent[0].beat.port = agent->cinfo->agent[0].req.cport;
-
-            // Check buffer size
-
-            if ((bufferin = reinterpret_cast<char *> (calloc(1, agent->cinfo->agent[0].beat.bsz))) == NULL)
-            {
-                iretn = -errno;
-                return;
-            }
-
-            // Receiving socket data
-            iretn = static_cast<int32_t>(recvfrom(
-                static_cast<int32_t>(agent->cinfo->agent[0].req.cudp),
-                bufferin,
-                agent->cinfo->agent[0].beat.bsz,
-                0,
-                reinterpret_cast<struct sockaddr *>(&agent->cinfo->agent[0].req.caddr),
-                reinterpret_cast<socklen_t *>(&agent->cinfo->agent[0].req.addrlen)
-            ));
-
-            std::cout << "Receiving " << bufferin << std::endl;
-
-            if (iretn > 0)
-            {
-                std::cout << "Received request: " << bufferin << std::endl;
-                bsoncxx::builder::stream::document document {};
-
-                // Convert the character
-                std::string req = bufferin;
-                map<std::string, std::string> input = get_keys(req, "?", "=");
-
-                mongocxx::collection collection = connection[input["database"]][input["collection"]];
-
-                std::string response;
-
-                mongocxx::options::find options;
-
-                if (!(input.find("options") == input.end())) {
-                    set_mongo_options(options, input["options"]);
-                }
-
-                if (input["multiple"] == "true")
-                {
-                    try
-                    {
-                        // Query the database based on the filter
-                        mongocxx::cursor cursor = collection.find(bsoncxx::from_json(input["query"]), options);
-
-                        // Check if the returned cursor is empty, if so return an empty array
-                        if (!(cursor.begin() == cursor.end())) {
-                            std::string data;
-
-                            for (auto document : cursor) {
-                                data.insert(data.size(), bsoncxx::to_json(document) + ",");
-                            }
-
-                            data.pop_back();
-
-                            response = "[" + data + "]";
-                        } else if (cursor.begin() == cursor.end() && response.empty()) {
-                            response = "[]";
-                        }
-                    } catch (mongocxx::logic_error err) {
-                        std::cout << "Logic error when querying occurred" << std::endl;
-
-                        response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
-                    } catch (bsoncxx::exception err) {
-                        std::cout << "Could not convert JSON" << std::endl;
-
-                        response = "{\"error\": \"Improper JSON query. Could not convert.\"}";
-                    }
+    while(agent->running()) {
 
 
-                    std::cout << response << std::endl;
-                }
-                else
-                {
-                    stdx::optional<bsoncxx::document::value> document;
-                    try
-                    {
-                        document = collection.find_one(bsoncxx::from_json(input["query"]), options);
-                    } catch (mongocxx::query_exception err)
-                    {
-                        std::cout << "Logic error when querying occurred" << std::endl;
-
-                        response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
-                    } catch (bsoncxx::exception err)
-                    {
-                        std::cout << "Could not convert JSON" << std::endl;
-
-                        response = "{\"error\": \"Improper JSON query. Could not convert.\"}";
-                    }
-
-                    // Check if document is empty, if so return an empty object
-                    if (document)
-                    {
-                        std::string data;
-
-                        data = bsoncxx::to_json(document.value());
-
-                        response = data;
-
-                    }
-                    else if (!document && response.empty())
-                    {
-                        response = "{}";
-                    }
-                }
-
-                if (response.empty())
-                {
-                    response = ebuffer;
-                }
-
-                bufferout = const_cast<char *>(response.c_str());
-
-                sendto(
-                    agent->cinfo->agent[0].req.cudp,
-                    bufferout,
-                    strlen(bufferout),
-                    0,
-                    reinterpret_cast<struct sockaddr *>(&agent->cinfo->agent[0].req.caddr),
-                    *reinterpret_cast<socklen_t *>(&agent->cinfo->agent[0].req.addrlen)
-                );
-
-                free(bufferin);
-                free(bufferout);
-            }
-            COSMOS_SLEEP(.1);
-        }
+        COSMOS_SLEEP(.1);
     }
 }
