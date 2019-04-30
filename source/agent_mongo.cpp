@@ -76,9 +76,9 @@
 #include <mongocxx/cursor.hpp>
 #include <mongocxx/options/find.hpp>
 
-//#include <Simple-WebSocket-Server-master/server_ws.hpp>
+#include <Simple-WebSocket-Server-master/server_ws.hpp>
 
-//using WsServer = SimpleWeb::SocketServer<SimpleWeb::WS>;
+using WsServer = SimpleWeb::SocketServer<SimpleWeb::WS>;
 using namespace bsoncxx;
 using bsoncxx::builder::basic::kvp;
 using namespace bsoncxx::builder::stream;
@@ -93,7 +93,6 @@ static mongocxx::client connection {
         "mongodb://192.168.150.9:27017/"
     }
 };
-
 
 //! Options available to specify when querying a Mongo database
 enum class MongoFindOption
@@ -145,7 +144,7 @@ enum class MongoFindOption
 
 void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes);
 void service_requests();
-map<std::string, std::string> get_keys(std::string &request, const std::string variable_delimiter, const std::string value_delimiter);
+map<std::string, std::string> get_keys(const std::string &request, const std::string variable_delimiter, const std::string value_delimiter);
 void str_to_lowercase(std::string &input);
 MongoFindOption option_table(std::string input);
 void set_mongo_options(mongocxx::options::find &options, std::string request);
@@ -306,7 +305,7 @@ void set_mongo_options(mongocxx::options::find &options, std::string request) {
 //                options.max(e.get_document()); // bson view or value
 //            case MongoFindOption::MAX_AWAIT_TIME:
 //                options.max_await_time(e.get_date()); // chronos
-//            case MongoFindOption::MAX_TIME:
+//            case MongoFindOption::MAX_TIME:server
 //                options.max_time() // chronos
 //            case MongoFindOption::MIN:
 //                options.min(e.get_document()) // bson view or value
@@ -424,6 +423,128 @@ int main(int argc, char** argv)
         exit(1);
     }
 
+    WsServer server;
+
+    server.config.port = 8080;
+
+    auto &endpoint = server.endpoint["^/orbit/?$"];
+
+    endpoint.on_message = [](std::shared_ptr<WsServer::Connection> ws_connection, std::shared_ptr<WsServer::InMessage> ws_message) {
+        std::string message = ws_message->string();
+        std::cout << "Received request: " << message << std::endl;
+
+        bsoncxx::builder::stream::document document {};
+
+        map<std::string, std::string> input = get_keys(message, "?", "=");
+
+        mongocxx::collection collection = connection[input["database"]][input["collection"]];
+
+        std::string response;
+
+        mongocxx::options::find options;
+
+        if (!(input.find("options") == input.end())) {
+            set_mongo_options(options, input["options"]);
+        }
+
+        if (input["multiple"] == "true")
+        {
+            try
+            {
+                // Query the database based on the filter
+                mongocxx::cursor cursor = collection.find(bsoncxx::from_json(input["query"]), options);
+
+                // Check if the returned cursor is empty, if so return an empty array
+                if (!(cursor.begin() == cursor.end())) {
+                    std::string data;
+
+                    for (auto document : cursor) {
+                        data.insert(data.size(), bsoncxx::to_json(document) + ",");
+                    }
+
+                    data.pop_back();
+
+                    response = "[" + data + "]";
+                } else if (cursor.begin() == cursor.end() && response.empty()) {
+                    response = "[]";
+                }
+            } catch (mongocxx::logic_error err) {
+                std::cout << "Logic error when querying occurred" << std::endl;
+
+                response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
+            } catch (bsoncxx::exception err) {
+                std::cout << "Could not convert JSON" << std::endl;
+
+                response = "{\"error\": \"Improper JSON query. Could not convert.\"}";
+            }
+
+
+            std::cout << response << std::endl;
+        }
+        else
+        {
+            stdx::optional<bsoncxx::document::value> document;
+            try
+            {
+                document = collection.find_one(bsoncxx::from_json(input["query"]), options);
+            } catch (mongocxx::query_exception err)
+            {
+                std::cout << "Logic error when querying occurred" << std::endl;
+
+                response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
+            } catch (bsoncxx::exception err)
+            {
+                std::cout << "Could not convert JSON" << std::endl;
+
+                response = "{\"error\": \"Improper JSON query. Could not convert.\"}";
+            }
+
+            // Check if document is empty, if so return an empty object
+            if (document)
+            {
+                std::string data;
+
+                data = bsoncxx::to_json(document.value());
+
+                response = data;
+
+            }
+            else if (!document && response.empty())
+            {
+                response = "{}";
+            }
+        }
+
+        if (response.empty())
+        {
+            response = "[NOK]";
+        }
+
+        ws_connection->send(response, [](const SimpleWeb::error_code &ec) {
+                if (ec) {
+                    cout << "Server: Error sending message. " << ec.message() << endl;
+                }
+            }
+        );
+    };
+
+    endpoint.on_open = [](std::shared_ptr<WsServer::Connection> connection) {
+      cout << "Server: Opened connection " << connection.get() << endl;
+      // send token when connected
+    };
+
+    endpoint.on_error = [](std::shared_ptr<WsServer::Connection> connection, const SimpleWeb::error_code &ec) {
+      cout << "Server: Error in connection " << connection.get() << ". "
+           << "Error: " << ec << ", error message: " << ec.message() << endl;
+    };
+
+
+    thread server_thread([&server]() {
+      // Start WS-server
+      server.start();
+    });
+
+
     // Create a thread for the data collection and service requests.
     collect_data_thread = thread(collect_data_loop, std::ref(included_nodes), std::ref(excluded_nodes));
     service_requests_thread = thread(service_requests);
@@ -527,111 +648,13 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
  */
 void service_requests()
 {
-    while(agent->running()) {
-//        WsServer websockets;
+//    while(agent->running()) {
 
-//        websockets.config.port = 800;
+//        auto &ws = websockets.endpoint["/api/orbit"];
 
-//        auto &ws = websockets.endpoint["/api"];
-
-//        ws.on_message = [](std::shared_ptr<WsServer::Connection> ws_connection, std::shared_ptr<WsServer::InMessage> ws_message) {
-//            std::string message = ws_message->string();
-//            std::cout << "Received request: " << message << std::endl;
-
-//            bsoncxx::builder::stream::document document {};
-
-//            map<std::string, std::string> input = get_keys(message, "?", "=");
-
-//            mongocxx::collection collection = connection[input["database"]][input["collection"]];
-
-//            std::string response;
-
-//            mongocxx::options::find options;
-
-//            if (!(input.find("options") == input.end())) {
-//                set_mongo_options(options, input["options"]);
-//            }
-
-//            if (input["multiple"] == "true")
-//            {
-//                try
-//                {
-//                    // Query the database based on the filter
-//                    mongocxx::cursor cursor = collection.find(bsoncxx::from_json(input["query"]), options);
-
-//                    // Check if the returned cursor is empty, if so return an empty array
-//                    if (!(cursor.begin() == cursor.end())) {
-//                        std::string data;
-
-//                        for (auto document : cursor) {
-//                            data.insert(data.size(), bsoncxx::to_json(document) + ",");
-//                        }
-
-//                        data.pop_back();
-
-//                        response = "[" + data + "]";
-//                    } else if (cursor.begin() == cursor.end() && response.empty()) {
-//                        response = "[]";
-//                    }
-//                } catch (mongocxx::logic_error err) {
-//                    std::cout << "Logic error when querying occurred" << std::endl;
-
-//                    response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
-//                } catch (bsoncxx::exception err) {
-//                    std::cout << "Could not convert JSON" << std::endl;
-
-//                    response = "{\"error\": \"Improper JSON query. Could not convert.\"}";
-//                }
-
-
-//                std::cout << response << std::endl;
-//            }
-//            else
-//            {
-//                stdx::optional<bsoncxx::document::value> document;
-//                try
-//                {
-//                    document = collection.find_one(bsoncxx::from_json(input["query"]), options);
-//                } catch (mongocxx::query_exception err)
-//                {
-//                    std::cout << "Logic error when querying occurred" << std::endl;
-
-//                    response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
-//                } catch (bsoncxx::exception err)
-//                {
-//                    std::cout << "Could not convert JSON" << std::endl;
-
-//                    response = "{\"error\": \"Improper JSON query. Could not convert.\"}";
-//                }
-
-//                // Check if document is empty, if so return an empty object
-//                if (document)
-//                {
-//                    std::string data;
-
-//                    data = bsoncxx::to_json(document.value());
-
-//                    response = data;
-
-//                }
-//                else if (!document && response.empty())
-//                {
-//                    response = "{}";
-//                }
-//            }
-
-//            if (response.empty())
-//            {
-//                response = "[NOK]";
-//            }
-
-//            ws_connection->send(response, [](const SimpleWeb::error_code &ec) {
-//                    if (ec) {
-//                        cout << "Server: Error sending message. " << ec.message() << endl;
-//                    }
-//                }
-//            );
+//        ws.on_open = [](std::shared_ptr<WsServer::Connection> connection) {
+//          cout << "Server: Opened connection " << connection.get() << endl;
 //        };
-        COSMOS_SLEEP(.1);
-    }
+//        COSMOS_SLEEP(.1);
+//    }
 }
