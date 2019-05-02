@@ -77,8 +77,10 @@
 #include <mongocxx/options/find.hpp>
 
 #include <Simple-WebSocket-Server-master/server_ws.hpp>
+#include <Simple-WebSocket-Server-master/client_ws.hpp>
 
 using WsServer = SimpleWeb::SocketServer<SimpleWeb::WS>;
+using WsClient = SimpleWeb::SocketClient<SimpleWeb::WS>;
 using namespace bsoncxx;
 using bsoncxx::builder::basic::kvp;
 using namespace bsoncxx::builder::stream;
@@ -427,10 +429,20 @@ int main(int argc, char** argv)
 
     server.config.port = 8080;
 
-    auto &endpoint = server.endpoint["^/orbit/?$"];
 
-    endpoint.on_message = [](std::shared_ptr<WsServer::Connection> ws_connection, std::shared_ptr<WsServer::InMessage> ws_message) {
+    // Endpoints for querying the database. Goes to /query/
+    auto &query = server.endpoint["^/query/?$"];
+
+    query.on_message = [](std::shared_ptr<WsServer::Connection> ws_connection, std::shared_ptr<WsServer::InMessage> ws_message) {
         std::string message = ws_message->string();
+
+        ws_connection->send(message, [](const SimpleWeb::error_code &ec) {
+          if (ec) {
+            cout << "Server: Error sending message. " <<
+                "Error: " << ec << ", error message: " << ec.message() << endl;
+          }
+        });
+
         std::cout << "Received request: " << message << std::endl;
 
         bsoncxx::builder::stream::document document {};
@@ -520,30 +532,41 @@ int main(int argc, char** argv)
             response = "[NOK]";
         }
 
+        cout << response << endl;
+
+
         ws_connection->send(response, [](const SimpleWeb::error_code &ec) {
-                if (ec) {
-                    cout << "Server: Error sending message. " << ec.message() << endl;
-                }
+            if (ec) {
+                cout << "Server: Error sending message. " << ec.message() << endl;
             }
-        );
+        });
     };
 
-    endpoint.on_open = [](std::shared_ptr<WsServer::Connection> connection) {
+    query.on_open = [](std::shared_ptr<WsServer::Connection> connection) {
       cout << "Server: Opened connection " << connection.get() << endl;
       // send token when connected
     };
 
-    endpoint.on_error = [](std::shared_ptr<WsServer::Connection> connection, const SimpleWeb::error_code &ec) {
+    query.on_error = [](std::shared_ptr<WsServer::Connection> connection, const SimpleWeb::error_code &ec) {
       cout << "Server: Error in connection " << connection.get() << ". "
            << "Error: " << ec << ", error message: " << ec.message() << endl;
     };
 
+    // For live requests, to broadcast to all clients. Goes to /live/node_name/
+    auto &echo_all = server.endpoint["^/live/([a-zA-Z0-9]+)/?$"];
+
+      echo_all.on_message = [&server](std::shared_ptr<WsServer::Connection> connection, std::shared_ptr<WsServer::InMessage> in_message) {
+        auto out_message = in_message->string();
+
+        // echo_all.get_connections() can also be used to solely receive connections on this endpoint
+        for(auto &a_connection : server.get_connections())
+          a_connection->send(out_message);
+      };
 
     thread server_thread([&server]() {
       // Start WS-server
       server.start();
     });
-
 
     // Create a thread for the data collection and service requests.
     collect_data_thread = thread(collect_data_loop, std::ref(included_nodes), std::ref(excluded_nodes));
@@ -624,6 +647,35 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
                         {
                             // Insert BSON object into collection specified
                             auto insert = collection.insert_one(value);
+
+                            // Websocket client here to broadcast to the WS server, then the WS server broadcasts to all clients that are listening
+                            WsClient client("localhost:8080/live/" + node);
+
+                              client.on_message = [](std::shared_ptr<WsClient::Connection> connection, std::shared_ptr<WsClient::InMessage> in_message) {
+                                cout << "Client: Message received: \"" << in_message->string() << "\"" << endl;
+
+                                cout << "Client: Sending close connection" << endl;
+                                connection->send_close(1000);
+                              };
+
+                              client.on_open = [&adata_with_date](std::shared_ptr<WsClient::Connection> connection) {
+                                cout << "Client: Opened connection" << endl;
+
+                                connection->send(adata_with_date);
+
+                                connection->send_close(1000);
+                              };
+
+                              client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/) {
+                                cout << "Client: Closed connection with status code " << status << endl;
+                              };
+
+                              // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
+                              client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec) {
+                                cout << "Client: Error: " << ec << ", error message: " << ec.message() << endl;
+                              };
+
+                              client.start();
 
                             agent->post(agent->message_ring[my_position].meta.type, adata_with_date);
 
