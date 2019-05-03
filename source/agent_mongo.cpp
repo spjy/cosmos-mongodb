@@ -651,13 +651,6 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
                             // Websocket client here to broadcast to the WS server, then the WS server broadcasts to all clients that are listening
                             WsClient client("localhost:8080/live/" + node);
 
-                              client.on_message = [](std::shared_ptr<WsClient::Connection> connection, std::shared_ptr<WsClient::InMessage> in_message) {
-                                cout << "Client: Message received: \"" << in_message->string() << "\"" << endl;
-
-                                cout << "Client: Sending close connection" << endl;
-                                connection->send_close(1000);
-                              };
-
                               client.on_open = [&adata_with_date](std::shared_ptr<WsClient::Connection> connection) {
                                 cout << "Client: Opened connection" << endl;
 
