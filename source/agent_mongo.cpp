@@ -51,6 +51,9 @@
 #include <map>
 #include <locale>
 #include <memory>
+#include <cstdio>
+#include <stdexcept>
+#include <array>
 
 #include <bsoncxx/document/value.hpp>
 #include <bsoncxx/document/view.hpp>
@@ -144,16 +147,44 @@ enum class MongoFindOption
     INVALID
 };
 
+std::string exec(const char* cmd);
 void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes);
-void service_requests();
 map<std::string, std::string> get_keys(const std::string &request, const std::string variable_delimiter, const std::string value_delimiter);
 void str_to_lowercase(std::string &input);
 MongoFindOption option_table(std::string input);
 void set_mongo_options(mongocxx::options::find &options, std::string request);
+int32_t request_command(char*, char* response, Agent*);
 
 static std::thread collect_data_thread;
-static std::thread service_requests_thread;
 
+/*! Run a command line script and get the output of it.
+ * \brief execute Use popen to run a command line script and get the output of the command.
+ * \param cmd the command to run
+ * \return the output from the command that was run
+ */
+std::string execute(std::string cmd) {
+
+    std::string data;
+    FILE * stream;
+    const int max_buffer = 256;
+    char buffer[max_buffer];
+    cmd.append(" 2>&1");
+
+    stream = popen(cmd.c_str(), "r");
+        if (stream) {
+        while (!feof(stream))
+            if (fgets(buffer, max_buffer, stream) != NULL) data.append(buffer);
+        pclose(stream);
+    }
+    return data;
+}
+
+/*! Check whether a vector contains a certain value.
+ * \brief vector_contains loop through the vector and check that a certain value is identical to one inside the vector
+ * \param input_vector
+ * \param value
+ * \return boolean: true if it was found inthe vector, false if not.
+ */
 bool vector_contains(std::vector<std::string> &input_vector, std::string value) {
     for (vector<std::string>::iterator it = input_vector.begin(); it != input_vector.end(); ++it)
     {
@@ -164,6 +195,14 @@ bool vector_contains(std::vector<std::string> &input_vector, std::string value) 
     return false;
 }
 
+
+/*! Check whether to save data from a node from command line/file specification
+ * \brief whitelisted_node loop through the included/excluded vectors and check if the node is contained in either one.
+ * \param included_nodes vector of included nodes
+ * \param excluded_nodes vector of excluded nodes
+ * \param node the node to check against vectors
+ * \return whether the node is whitelisted; true if it is, false if it is not.
+ */
 bool whitelisted_node(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &node) {
     bool whitelisted = false;
 
@@ -187,7 +226,7 @@ bool whitelisted_node(std::vector<std::string> &included_nodes, std::vector<std:
 }
 
 //! Retrieve a request consisting of a list of key values and assign them to a map.
- /*! Split up the list of key values by a specified delimiter, then split up the key values by a specified delimiter and assign the key to a map with its corresponding value.
+ /*! \brief Split up the list of key values by a specified delimiter, then split up the key values by a specified delimiter and assign the key to a map with its corresponding value.
  \param request The request to assign to a map
  \param variable_delimiter The delimiter that separates the list of key values
  \param value_delimiter The delimiter that separates the key from the value
@@ -429,7 +468,6 @@ int main(int argc, char** argv)
 
     server.config.port = 8080;
 
-
     // Endpoints for querying the database. Goes to /query/
     auto &query = server.endpoint["^/query/?$"];
 
@@ -487,7 +525,7 @@ int main(int argc, char** argv)
             } catch (bsoncxx::exception err) {
                 std::cout << "Could not convert JSON" << std::endl;
 
-                response = "{\"error\": \"Improper JSON query. Could not convert.\"}";
+                response = "{\"error\": \"Improper JSON query.\"}";
             }
 
 
@@ -508,7 +546,7 @@ int main(int argc, char** argv)
             {
                 std::cout << "Could not convert JSON" << std::endl;
 
-                response = "{\"error\": \"Improper JSON query. Could not convert.\"}";
+                response = "{\"error\": \"Improper JSON query.\"}";
             }
 
             // Check if document is empty, if so return an empty object
@@ -555,13 +593,27 @@ int main(int argc, char** argv)
     // For live requests, to broadcast to all clients. Goes to /live/node_name/
     auto &echo_all = server.endpoint["^/live/([a-zA-Z0-9]+)/?$"];
 
-      echo_all.on_message = [&server](std::shared_ptr<WsServer::Connection> connection, std::shared_ptr<WsServer::InMessage> in_message) {
-        auto out_message = in_message->string();
+    echo_all.on_message = [&server](std::shared_ptr<WsServer::Connection> connection, std::shared_ptr<WsServer::InMessage> in_message) {
+      auto out_message = in_message->string();
 
-        // echo_all.get_connections() can also be used to solely receive connections on this endpoint
-        for(auto &a_connection : server.get_connections())
+
+
+      // echo_all.get_connections() can also be used to solely receive connections on this endpoint
+      for(auto &a_connection : server.get_connections())
           a_connection->send(out_message);
-      };
+    };
+
+    auto &command = server.endpoint["^/command/?$"];
+
+    command.on_message = [](std::shared_ptr<WsServer::Connection> ws_connection, std::shared_ptr<WsServer::InMessage> ws_message) {
+        std::string result = execute(ws_message->string());
+
+        ws_connection->send(result, [](const SimpleWeb::error_code &ec) {
+            if (ec) {
+                cout << "Server: Error sending message. " << ec.message() << endl;
+            }
+        });
+    };
 
     thread server_thread([&server]() {
       // Start WS-server
@@ -570,7 +622,6 @@ int main(int argc, char** argv)
 
     // Create a thread for the data collection and service requests.
     collect_data_thread = thread(collect_data_loop, std::ref(included_nodes), std::ref(excluded_nodes));
-    service_requests_thread = thread(service_requests);
 
     while(agent->running())
     {
@@ -580,7 +631,6 @@ int main(int argc, char** argv)
 
     agent->shutdown();
     collect_data_thread.join();
-    service_requests_thread.join();
 
     return 0;
 }
@@ -616,14 +666,20 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
                 {
                     // Extract node from jdata
                     std::string node = json_extract_namedobject(agent->message_ring[my_position].jdata, "agent_node");
+                    std::string type = json_extract_namedobject(agent->message_ring[my_position].jdata, "agent_proc");
 
                     // Remove leading and trailing quotes around node
                     node.erase(0, 1);
                     node.pop_back();
 
+                    type.erase(0, 1);
+                    type.pop_back();
+
+                    std::string node_type = node + "_" + type;
+
                     // Connect to the database and store in the collection of the node name
-                    if (whitelisted_node(included_nodes, excluded_nodes, node)) {
-                        auto collection = connection["db"][node]; // store by node
+                    if (whitelisted_node(included_nodes, excluded_nodes, node_type)) {
+                        auto collection = connection["db"][node_type]; // store by node
 
                         bsoncxx::document::view_or_value value;
 
@@ -649,7 +705,7 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
                             auto insert = collection.insert_one(value);
 
                             // Websocket client here to broadcast to the WS server, then the WS server broadcasts to all clients that are listening
-                            WsClient client("localhost:8080/live/" + node);
+                            WsClient client("localhost:8080/live/" + node_type);
 
                               client.on_open = [&adata_with_date](std::shared_ptr<WsClient::Connection> connection) {
                                 cout << "Client: Opened connection" << endl;
@@ -670,9 +726,7 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
 
                               client.start();
 
-                            agent->post(agent->message_ring[my_position].meta.type, adata_with_date);
-
-                            std::cout << "Inserted adata into collection " << node << std::endl;
+                            std::cout << "Inserted adata into collection " << node_type << std::endl;
                         } catch (const mongocxx::bulk_write_exception err)
                         {
                             cout << "Error writing to database." << endl;
@@ -684,22 +738,4 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
         COSMOS_SLEEP(.1);
     }
     return;
-}
-
-//! The method to handle incoming requests to query the database
-/*!
- *
- * \param connection MongoDB connection instance
- */
-void service_requests()
-{
-//    while(agent->running()) {
-
-//        auto &ws = websockets.endpoint["/api/orbit"];
-
-//        ws.on_open = [](std::shared_ptr<WsServer::Connection> connection) {
-//          cout << "Server: Opened connection " << connection.get() << endl;
-//        };
-//        COSMOS_SLEEP(.1);
-//    }
 }
