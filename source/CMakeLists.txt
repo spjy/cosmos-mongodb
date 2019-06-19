@@ -8,11 +8,14 @@ project(mongodb)
 set(COSMOS_SOURCE   "../../../")
 set(USE_COSMOS_FROM "SOURCE")
 
-find_package(libmongocxx REQUIRED)
-find_package(libbsoncxx REQUIRED)
+#set(CMAKE_MODULE_PATH "/usr/local/lib/")
+#set(CMAKE_PREFIX_PATH, "/usr/local/lib/cmake/libbsoncxx-3.4.0" "usr/local/lib/cmake/libmongocxx-3.4.0")
+
+#find_package(mongocxx-3.4.0 COMPONENTS)
+#find_package(bsoncxx-3.4.0 COMPONENTS)
 
 #include_directories("/Users/miguelnunes/")
-include_directories("/usr/local/include/mongocxx/v_noabi" "/usr/local/include/bsoncxx/v_noabi")
+include_directories("usr/include" "/usr/local/include/mongocxx/v_noabi" "/usr/local/include/bsoncxx/v_noabi" "${CMAKE_SOURCE_DIR}/../include" "/home/spjy/Simple-WebSocket-Server-master/" "/home/spjy/openssl-1.1.0j/include" "/home/spjy/boost_1_70_0/")
 link_directories("/usr/local/lib")
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -std=c++11 -Wno-invalid-offsetof")
@@ -42,7 +45,6 @@ set(COSMOS_LIBS
     CosmosDeviceSerial
     CosmosDeviceCpu
     CosmosDeviceDisk
-    CosmosMath
     )
 
 # -----------------------------------------------
@@ -53,7 +55,7 @@ endif()
 
 add_executable(agent_mongo agent_mongo.cpp)
 
-target_link_libraries(agent_mongo ${COSMOS_LIBS} mongoc-1.0 mongocxx bson-1.0 bsoncxx)
+target_link_libraries(agent_mongo ${COSMOS_LIBS} bson-1.0 bsoncxx mongoc-1.0 mongocxx ssl crypto boost_system)
 
 # -----------------------------------------------
 # to deploy on a remote device

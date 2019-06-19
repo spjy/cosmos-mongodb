@@ -95,7 +95,7 @@ static mongocxx::instance instance {};
 // Connect to a MongoDB URI and establish connection
 static mongocxx::client connection {
     mongocxx::uri {
-        "mongodb://192.168.150.9:27017/"
+        "mongodb://server:27017/"
     }
 };
 
@@ -147,7 +147,7 @@ enum class MongoFindOption
     INVALID
 };
 
-std::string exec(const char* cmd);
+std::string execute(const char* cmd);
 void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes);
 map<std::string, std::string> get_keys(const std::string &request, const std::string variable_delimiter, const std::string value_delimiter);
 void str_to_lowercase(std::string &input);
@@ -441,6 +441,10 @@ int main(int argc, char** argv)
         }
     }
 
+    if (included_nodes.empty() && excluded_nodes.empty() && nodes_path.empty()) {
+        included_nodes.push_back("*");
+    }
+
     cout << "Including nodes: ";
 
     for (std::string s : included_nodes) {
@@ -591,12 +595,10 @@ int main(int argc, char** argv)
     };
 
     // For live requests, to broadcast to all clients. Goes to /live/node_name/
-    auto &echo_all = server.endpoint["^/live/([a-zA-Z0-9]+)/?$"];
+    auto &echo_all = server.endpoint["^/live/(.+)/?$"];
 
     echo_all.on_message = [&server](std::shared_ptr<WsServer::Connection> connection, std::shared_ptr<WsServer::InMessage> in_message) {
       auto out_message = in_message->string();
-
-
 
       // echo_all.get_connections() can also be used to solely receive connections on this endpoint
       for(auto &a_connection : server.get_connections())
@@ -631,6 +633,7 @@ int main(int argc, char** argv)
 
     agent->shutdown();
     collect_data_thread.join();
+    server_thread.join();
 
     return 0;
 }
@@ -679,7 +682,7 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
 
                     // Connect to the database and store in the collection of the node name
                     if (whitelisted_node(included_nodes, excluded_nodes, node_type)) {
-                        auto collection = connection["db"][node_type]; // store by node
+                        auto collection = connection["agent_dump"][node_type]; // store by node
 
                         bsoncxx::document::view_or_value value;
 
@@ -704,11 +707,12 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
                             // Insert BSON object into collection specified
                             auto insert = collection.insert_one(value);
 
+                            std::string ip = "localhost:8080/live/" + node_type;
                             // Websocket client here to broadcast to the WS server, then the WS server broadcasts to all clients that are listening
-                            WsClient client("localhost:8080/live/" + node_type);
+                            WsClient client(ip);
 
-                              client.on_open = [&adata_with_date](std::shared_ptr<WsClient::Connection> connection) {
-                                cout << "Client: Opened connection" << endl;
+                              client.on_open = [&adata_with_date, &node_type](std::shared_ptr<WsClient::Connection> connection) {
+                                cout << "Client: Broadcasted adata for " << node_type << endl;
 
                                 connection->send(adata_with_date);
 
