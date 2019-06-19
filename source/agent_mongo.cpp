@@ -171,9 +171,12 @@ std::string execute(std::string cmd) {
     cmd.append(" 2>&1");
 
     stream = popen(cmd.c_str(), "r");
-        if (stream) {
+    if (stream)
+    {
         while (!feof(stream))
+        {
             if (fgets(buffer, max_buffer, stream) != NULL) data.append(buffer);
+        }
         pclose(stream);
     }
     return data;
@@ -188,7 +191,8 @@ std::string execute(std::string cmd) {
 bool vector_contains(std::vector<std::string> &input_vector, std::string value) {
     for (vector<std::string>::iterator it = input_vector.begin(); it != input_vector.end(); ++it)
     {
-        if (*it == value) {
+        if (*it == value)
+        {
             return true;
         }
     }
@@ -212,12 +216,18 @@ bool whitelisted_node(std::vector<std::string> &included_nodes, std::vector<std:
 
     // if it contains the wildcard, check if the node is on the excluded list
 
-    if (vector_contains(included_nodes, node)) {
+    if (vector_contains(included_nodes, node))
+    {
         whitelisted = true;
-    } else {
-        if (vector_contains(excluded_nodes, node)) {
+    }
+    else
+    {
+        if (vector_contains(excluded_nodes, node))
+        {
             whitelisted = false;
-        } else if (vector_contains(included_nodes, "*")) {
+        }
+        else if (vector_contains(included_nodes, "*"))
+        {
             whitelisted = true;
         }
     }
@@ -351,24 +361,28 @@ void set_mongo_options(mongocxx::options::find &options, std::string request) {
 //            case MongoFindOption::MIN:
 //                options.min(e.get_document()) // bson view or value
             case MongoFindOption::NO_CURSOR_TIMEOUT:
-                if (e.type() == type::k_bool) {
+                if (e.type() == type::k_bool)
+                {
                    options.no_cursor_timeout(e.get_bool().value);
                 }
                 break;
 //            case MongoFindOption::PROJECTION:
 //                options.projection() // bson view or value
             case MongoFindOption::RETURN_KEY:
-                if (e.type() == type::k_bool) {
+                if (e.type() == type::k_bool)
+                {
                     options.return_key(e.get_bool().value);
                 }
                 break;
             case MongoFindOption::SHOW_RECORD_ID:
-                if (e.type() == type::k_bool) {
+                if (e.type() == type::k_bool)
+                {
                     options.show_record_id(e.get_bool().value);
                 }
                 break;
             case MongoFindOption::SKIP:
-                if (e.type() == type::k_int32) {
+                if (e.type() == type::k_int32)
+                {
                     options.skip(e.get_int32().value);
                 } else if (e.type() == type::k_int64) {
                     options.skip(e.get_int64().value);
@@ -396,12 +410,16 @@ int main(int argc, char** argv)
     // If include nodes by file, include path to file through --whitelist_file_path
     for (int i = 1; i < argc; i++) {
         // Look for flags and see if the value exists
-        if (argv[i][0] == '-' && argv[i][1] == '-' && argv[i + 1] != nullptr) {
-            if (strncmp(argv[i], "--include", sizeof(argv[i]) / sizeof(argv[i][0])) == 0) {
+        if (argv[i][0] == '-' && argv[i][1] == '-' && argv[i + 1] != nullptr)
+        {
+            if (strncmp(argv[i], "--include", sizeof(argv[i]) / sizeof(argv[i][0])) == 0)
+            {
                 included_nodes = string_split(argv[i + 1], ",");
-            } else if (strncmp(argv[i], "--exclude", sizeof(argv[i]) / sizeof(argv[i][0])) == 0) {
+            } else if (strncmp(argv[i], "--exclude", sizeof(argv[i]) / sizeof(argv[i][0])) == 0)
+            {
                 excluded_nodes = string_split(argv[i + 1], ",");
-            } else if (strncmp(argv[i], "--whitelist_file_path", sizeof(argv[i]) / sizeof(argv[i][0])) == 0) {
+            } else if (strncmp(argv[i], "--whitelist_file_path", sizeof(argv[i]) / sizeof(argv[i][0])) == 0)
+            {
                 nodes_path = argv[i + 1];
             }
         }
@@ -412,7 +430,8 @@ int main(int argc, char** argv)
         std::ifstream nodes;
         nodes.open(nodes_path, std::ifstream::binary);
 
-        if (nodes.is_open()) {
+        if (nodes.is_open())
+        {
             // Get string buffer and extract array values
             std::stringstream buffer;
             buffer << nodes.rdbuf();
@@ -431,23 +450,27 @@ int main(int argc, char** argv)
             bsoncxx::array::view includesArray {include.get_array().value};
             bsoncxx::array::view excludesArray {exclude.get_array().value};
 
-            for (bsoncxx::array::element e : includesArray) {
+            for (bsoncxx::array::element e : includesArray)
+            {
                 included_nodes.push_back(bsoncxx::string::to_string(e.get_utf8().value));
             }
 
-            for (bsoncxx::array::element e : excludesArray) {
+            for (bsoncxx::array::element e : excludesArray)
+            {
                 excluded_nodes.push_back(bsoncxx::string::to_string(e.get_utf8().value));
             }
         }
     }
 
-    if (included_nodes.empty() && excluded_nodes.empty() && nodes_path.empty()) {
+    if (included_nodes.empty() && excluded_nodes.empty() && nodes_path.empty())
+    {
         included_nodes.push_back("*");
     }
 
     cout << "Including nodes: ";
 
-    for (std::string s : included_nodes) {
+    for (std::string s : included_nodes)
+    {
         cout << s + " ";
     }
 
@@ -455,7 +478,8 @@ int main(int argc, char** argv)
 
     cout << "Excluding nodes: ";
 
-    for (std::string s : excluded_nodes) {
+    for (std::string s : excluded_nodes)
+    {
         cout << s + " ";
     }
 
@@ -463,7 +487,8 @@ int main(int argc, char** argv)
 
     agent = new Agent(nodename, agentname, 1, AGENTMAXBUFFER, false, 20301);
 
-    if (agent->cinfo == nullptr) {
+    if (agent->cinfo == nullptr)
+    {
         std::cout << "Unable to start agent_mongo" << std::endl;
         exit(1);
     }
@@ -475,10 +500,12 @@ int main(int argc, char** argv)
     // Endpoints for querying the database. Goes to /query/
     auto &query = server.endpoint["^/query/?$"];
 
-    query.on_message = [](std::shared_ptr<WsServer::Connection> ws_connection, std::shared_ptr<WsServer::InMessage> ws_message) {
+    query.on_message = [](std::shared_ptr<WsServer::Connection> ws_connection, std::shared_ptr<WsServer::InMessage> ws_message)
+    {
         std::string message = ws_message->string();
 
-        ws_connection->send(message, [](const SimpleWeb::error_code &ec) {
+        ws_connection->send(message, [](const SimpleWeb::error_code &ec)
+        {
           if (ec) {
             cout << "Server: Error sending message. " <<
                 "Error: " << ec << ", error message: " << ec.message() << endl;
@@ -497,7 +524,8 @@ int main(int argc, char** argv)
 
         mongocxx::options::find options;
 
-        if (!(input.find("options") == input.end())) {
+        if (!(input.find("options") == input.end()))
+        {
             set_mongo_options(options, input["options"]);
         }
 
@@ -509,24 +537,32 @@ int main(int argc, char** argv)
                 mongocxx::cursor cursor = collection.find(bsoncxx::from_json(input["query"]), options);
 
                 // Check if the returned cursor is empty, if so return an empty array
-                if (!(cursor.begin() == cursor.end())) {
+                if (!(cursor.begin() == cursor.end()))
+                {
                     std::string data;
 
-                    for (auto document : cursor) {
+                    for (auto document : cursor)
+                    {
                         data.insert(data.size(), bsoncxx::to_json(document) + ",");
                     }
 
                     data.pop_back();
 
                     response = "[" + data + "]";
-                } else if (cursor.begin() == cursor.end() && response.empty()) {
+                }
+                else if (cursor.begin() == cursor.end() && response.empty())
+                {
                     response = "[]";
                 }
-            } catch (mongocxx::logic_error err) {
+            }
+            catch (mongocxx::logic_error err)
+            {
                 std::cout << "Logic error when querying occurred" << std::endl;
 
                 response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
-            } catch (bsoncxx::exception err) {
+            }
+            catch (bsoncxx::exception err)
+            {
                 std::cout << "Could not convert JSON" << std::endl;
 
                 response = "{\"error\": \"Improper JSON query.\"}";
@@ -541,12 +577,14 @@ int main(int argc, char** argv)
             try
             {
                 document = collection.find_one(bsoncxx::from_json(input["query"]), options);
-            } catch (mongocxx::query_exception err)
+            }
+            catch (mongocxx::query_exception err)
             {
                 std::cout << "Logic error when querying occurred" << std::endl;
 
                 response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
-            } catch (bsoncxx::exception err)
+            }
+            catch (bsoncxx::exception err)
             {
                 std::cout << "Could not convert JSON" << std::endl;
 
@@ -577,19 +615,22 @@ int main(int argc, char** argv)
         cout << response << endl;
 
 
-        ws_connection->send(response, [](const SimpleWeb::error_code &ec) {
+        ws_connection->send(response, [](const SimpleWeb::error_code &ec)
+        {
             if (ec) {
                 cout << "Server: Error sending message. " << ec.message() << endl;
             }
         });
     };
 
-    query.on_open = [](std::shared_ptr<WsServer::Connection> connection) {
+    query.on_open = [](std::shared_ptr<WsServer::Connection> connection)
+    {
       cout << "Server: Opened connection " << connection.get() << endl;
       // send token when connected
     };
 
-    query.on_error = [](std::shared_ptr<WsServer::Connection> connection, const SimpleWeb::error_code &ec) {
+    query.on_error = [](std::shared_ptr<WsServer::Connection> connection, const SimpleWeb::error_code &ec)
+    {
       cout << "Server: Error in connection " << connection.get() << ". "
            << "Error: " << ec << ", error message: " << ec.message() << endl;
     };
@@ -597,7 +638,8 @@ int main(int argc, char** argv)
     // For live requests, to broadcast to all clients. Goes to /live/node_name/
     auto &echo_all = server.endpoint["^/live/(.+)/?$"];
 
-    echo_all.on_message = [&server](std::shared_ptr<WsServer::Connection> connection, std::shared_ptr<WsServer::InMessage> in_message) {
+    echo_all.on_message = [&server](std::shared_ptr<WsServer::Connection> connection, std::shared_ptr<WsServer::InMessage> in_message)
+    {
       auto out_message = in_message->string();
 
       // echo_all.get_connections() can also be used to solely receive connections on this endpoint
@@ -607,7 +649,8 @@ int main(int argc, char** argv)
 
     auto &command = server.endpoint["^/command/?$"];
 
-    command.on_message = [](std::shared_ptr<WsServer::Connection> ws_connection, std::shared_ptr<WsServer::InMessage> ws_message) {
+    command.on_message = [](std::shared_ptr<WsServer::Connection> ws_connection, std::shared_ptr<WsServer::InMessage> ws_message)
+    {
         std::string result = execute(ws_message->string());
 
         ws_connection->send(result, [](const SimpleWeb::error_code &ec) {
@@ -617,7 +660,8 @@ int main(int argc, char** argv)
         });
     };
 
-    thread server_thread([&server]() {
+    thread server_thread([&server]()
+    {
       // Start WS-server
       server.start();
     });
@@ -681,7 +725,8 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
                     std::string node_type = node + "_" + type;
 
                     // Connect to the database and store in the collection of the node name
-                    if (whitelisted_node(included_nodes, excluded_nodes, node_type)) {
+                    if (whitelisted_node(included_nodes, excluded_nodes, node_type))
+                    {
                         auto collection = connection["agent_dump"][node_type]; // store by node
 
                         bsoncxx::document::view_or_value value;
@@ -692,13 +737,15 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
                         // Copy adata and manipulate string to add the agent_utc (date)
                         std::string adata = agent->message_ring[my_position].adata;
                         adata.pop_back();
-                        std::string adata_with_date = adata.append(", \"agent_utc\" : " + utc + "}");
+                        std::string adata_with_date = adata.append(", \"utc\" : " + utc + "}");
 
                         try
                         {
                             // Convert JSON into BSON object to prepare for database insertion
                             value = bsoncxx::from_json(adata_with_date);
-                        } catch (const bsoncxx::exception err) {
+                        }
+                        catch (const bsoncxx::exception err)
+                        {
                             std::cout << "Error converting to BSON from JSON" << std::endl;
                         }
 
@@ -711,27 +758,31 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
                             // Websocket client here to broadcast to the WS server, then the WS server broadcasts to all clients that are listening
                             WsClient client(ip);
 
-                              client.on_open = [&adata_with_date, &node_type](std::shared_ptr<WsClient::Connection> connection) {
-                                cout << "Client: Broadcasted adata for " << node_type << endl;
+                            client.on_open = [&adata_with_date, &node_type](std::shared_ptr<WsClient::Connection> connection)
+                            {
+                            cout << "Client: Broadcasted adata for " << node_type << endl;
 
-                                connection->send(adata_with_date);
+                            connection->send(adata_with_date);
 
-                                connection->send_close(1000);
-                              };
+                            connection->send_close(1000);
+                            };
 
-                              client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/) {
-                                cout << "Client: Closed connection with status code " << status << endl;
-                              };
+                            client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
+                            {
+                            cout << "Client: Closed connection with status code " << status << endl;
+                            };
 
-                              // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
-                              client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec) {
-                                cout << "Client: Error: " << ec << ", error message: " << ec.message() << endl;
-                              };
+                            // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
+                            client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
+                            {
+                            cout << "Client: Error: " << ec << ", error message: " << ec.message() << endl;
+                            };
 
-                              client.start();
+                            client.start();
 
                             std::cout << "Inserted adata into collection " << node_type << std::endl;
-                        } catch (const mongocxx::bulk_write_exception err)
+                        }
+                        catch (const mongocxx::bulk_write_exception err)
                         {
                             cout << "Error writing to database." << endl;
                         }
