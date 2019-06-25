@@ -424,10 +424,12 @@ int main(int argc, char** argv)
             if (strncmp(argv[i], "--include", sizeof(argv[i]) / sizeof(argv[i][0])) == 0)
             {
                 included_nodes = string_split(argv[i + 1], ",");
-            } else if (strncmp(argv[i], "--exclude", sizeof(argv[i]) / sizeof(argv[i][0])) == 0)
+            }
+            else if (strncmp(argv[i], "--exclude", sizeof(argv[i]) / sizeof(argv[i][0])) == 0)
             {
                 excluded_nodes = string_split(argv[i + 1], ",");
-            } else if (strncmp(argv[i], "--whitelist_file_path", sizeof(argv[i]) / sizeof(argv[i][0])) == 0)
+            }
+            else if (strncmp(argv[i], "--whitelist_file_path", sizeof(argv[i]) / sizeof(argv[i][0])) == 0)
             {
                 nodes_path = argv[i + 1];
             }
@@ -527,14 +529,11 @@ int main(int argc, char** argv)
         std::cout << "Received request: " << message << std::endl;
 
         bsoncxx::builder::stream::document document {};
+        std::string response;
+        mongocxx::options::find options;
 
         map<std::string, std::string> input = get_keys(message, "?", "=");
-
         mongocxx::collection collection = connection[input["database"]][input["collection"]];
-
-        std::string response;
-
-        mongocxx::options::find options;
 
         if (!(input.find("options") == input.end()))
         {
@@ -559,7 +558,6 @@ int main(int argc, char** argv)
                     }
 
                     data.pop_back();
-
                     response = "[" + data + "]";
                 }
                 else if (cursor.begin() == cursor.end() && response.empty())
@@ -609,7 +607,6 @@ int main(int argc, char** argv)
                 std::string data;
 
                 data = bsoncxx::to_json(document.value());
-
                 response = data;
 
             }
@@ -629,7 +626,8 @@ int main(int argc, char** argv)
 
         ws_connection->send(response, [](const SimpleWeb::error_code &ec)
         {
-            if (ec) {
+            if (ec)
+            {
                 cout << "Server: Error sending message. " << ec.message() << endl;
             }
         });
@@ -739,7 +737,8 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
                     // Connect to the database and store in the collection of the node name
                     if (whitelisted_node(included_nodes, excluded_nodes, node_type))
                     {
-                        auto collection = connection["agent_dump"][node_type]; // store by node
+                        auto collection = connection["agent_dump"][node_type        std::string response;
+                        mongocxx::options::find options;]; // store by node
 
                         bsoncxx::document::view_or_value value;
 
