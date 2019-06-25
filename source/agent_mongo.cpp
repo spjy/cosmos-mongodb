@@ -90,10 +90,12 @@ using namespace bsoncxx::builder::stream;
 
 static Agent *agent;
 
-static mongocxx::instance instance {};
+static mongocxx::instance instance
+{};
 
 // Connect to a MongoDB URI and establish connection
-static mongocxx::client connection {
+static mongocxx::client connection
+{
     mongocxx::uri {
         "mongodb://server:27017/"
     }
@@ -162,12 +164,14 @@ static std::thread collect_data_thread;
  * \param cmd the command to run
  * \return the output from the command that was run
  */
-std::string execute(std::string cmd) {
+std::string execute(std::string cmd)
+{
 
     std::string data;
     FILE * stream;
     const int max_buffer = 256;
     char buffer[max_buffer];
+    cmd.insert(0, "agent ");
     cmd.append(" 2>&1");
 
     stream = popen(cmd.c_str(), "r");
@@ -188,7 +192,8 @@ std::string execute(std::string cmd) {
  * \param value
  * \return boolean: true if it was found inthe vector, false if not.
  */
-bool vector_contains(std::vector<std::string> &input_vector, std::string value) {
+bool vector_contains(std::vector<std::string> &input_vector, std::string value)
+{
     for (vector<std::string>::iterator it = input_vector.begin(); it != input_vector.end(); ++it)
     {
         if (*it == value)
@@ -207,7 +212,8 @@ bool vector_contains(std::vector<std::string> &input_vector, std::string value) 
  * \param node the node to check against vectors
  * \return whether the node is whitelisted; true if it is, false if it is not.
  */
-bool whitelisted_node(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &node) {
+bool whitelisted_node(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &node)
+{
     bool whitelisted = false;
 
     // Check if the node is on the included list, if so return true
@@ -313,7 +319,8 @@ MongoFindOption option_table(std::string input)
   \param options The MongoDB find option class to append the options to
   \param request A JSON object of wanted options
 */
-void set_mongo_options(mongocxx::options::find &options, std::string request) {
+void set_mongo_options(mongocxx::options::find &options, std::string request)
+{
     bsoncxx::document::value json = bsoncxx::from_json(request);
     bsoncxx::document::view opt { json.view() };
 
@@ -323,7 +330,8 @@ void set_mongo_options(mongocxx::options::find &options, std::string request) {
 
         MongoFindOption option = option_table(key);
 
-        switch(option) {
+        switch(option)
+        {
             case MongoFindOption::ALLOW_PARTIAL_RESULTS:
                 if (e.type() == type::k_int32)
                 {
@@ -408,7 +416,8 @@ int main(int argc, char** argv)
 
     // Get command line arguments for including/excluding certain nodes
     // If include nodes by file, include path to file through --whitelist_file_path
-    for (int i = 1; i < argc; i++) {
+    for (int i = 1; i < argc; i++)
+    {
         // Look for flags and see if the value exists
         if (argv[i][0] == '-' && argv[i][1] == '-' && argv[i + 1] != nullptr)
         {
@@ -425,7 +434,8 @@ int main(int argc, char** argv)
         }
     }
 
-    if (included_nodes.empty() && excluded_nodes.empty() && !nodes_path.empty()) {
+    if (included_nodes.empty() && excluded_nodes.empty() && !nodes_path.empty())
+    {
         // Open file provided by the command line arg
         std::ifstream nodes;
         nodes.open(nodes_path, std::ifstream::binary);
@@ -439,11 +449,13 @@ int main(int argc, char** argv)
             bsoncxx::document::value json = bsoncxx::from_json(buffer.str());
             bsoncxx::document::view opt { json.view() };
 
-            bsoncxx::document::element include {
+            bsoncxx::document::element include
+            {
                 opt["include"]
             };
 
-            bsoncxx::document::element exclude {
+            bsoncxx::document::element exclude
+            {
                 opt["exclude"]
             };
 
@@ -638,7 +650,7 @@ int main(int argc, char** argv)
     // For live requests, to broadcast to all clients. Goes to /live/node_name/
     auto &echo_all = server.endpoint["^/live/(.+)/?$"];
 
-    echo_all.on_message = [&server](std::shared_ptr<WsServer::Connection> connection, std::shared_ptr<WsServer::InMessage> in_message)
+    echo_all.on_message = [&server](std::shared_ptr<WsServer::Connection> /* connection */, std::shared_ptr<WsServer::InMessage> in_message)
     {
       auto out_message = in_message->string();
 
