@@ -737,8 +737,9 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
                     // Connect to the database and store in the collection of the node name
                     if (whitelisted_node(included_nodes, excluded_nodes, node_type))
                     {
-                        auto collection = connection["agent_dump"][node_type        std::string response;
-                        mongocxx::options::find options;]; // store by node
+                        auto collection = connection["agent_dump"][node_type];
+                        std::string response;
+                        mongocxx::options::find options; // store by node
 
                         bsoncxx::document::view_or_value value;
 
