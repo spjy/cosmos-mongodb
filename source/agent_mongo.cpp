@@ -55,6 +55,8 @@
 #include <stdexcept>
 #include <array>
 
+#include <boost/algorithm/string.hpp>
+
 #include <bsoncxx/document/value.hpp>
 #include <bsoncxx/document/view.hpp>
 #include <bsoncxx/array/element.hpp>
@@ -507,12 +509,13 @@ int main(int argc, char** argv)
         exit(1);
     }
 
-    WsServer server;
-
-    server.config.port = 8080;
+    WsServer ws_query;
+    WsServer ws_live;
+    ws_query.config.port = 8080;
+    ws_live.config.port = 8081;
 
     // Endpoints for querying the database. Goes to /query/
-    auto &query = server.endpoint["^/query/?$"];
+    auto &query = ws_query.endpoint["^/query/?$"];
 
     query.on_message = [](std::shared_ptr<WsServer::Connection> ws_connection, std::shared_ptr<WsServer::InMessage> ws_message)
     {
@@ -646,22 +649,110 @@ int main(int argc, char** argv)
     };
 
     // For live requests, to broadcast to all clients. Goes to /live/node_name/
-    auto &echo_all = server.endpoint["^/live/(.+)/?$"];
+    auto &echo_all = ws_live.endpoint["^/live/(.+)/?$"];
 
-    echo_all.on_message = [&server](std::shared_ptr<WsServer::Connection> /* connection */, std::shared_ptr<WsServer::InMessage> in_message)
+    echo_all.on_message = [&echo_all](std::shared_ptr<WsServer::Connection> /* connection */, std::shared_ptr<WsServer::InMessage> in_message)
     {
       auto out_message = in_message->string();
 
       // echo_all.get_connections() can also be used to solely receive connections on this endpoint
-      for(auto &a_connection : server.get_connections())
+      for(auto &a_connection : echo_all.get_connections())
           a_connection->send(out_message);
     };
 
-    auto &command = server.endpoint["^/command/?$"];
+    auto &command = ws_query.endpoint["^/command/?$"];
 
     command.on_message = [](std::shared_ptr<WsServer::Connection> ws_connection, std::shared_ptr<WsServer::InMessage> ws_message)
     {
-        std::string result = execute(ws_message->string());
+        std::string message = ws_message->string();
+        std::string result = "{";
+
+        try {
+            bsoncxx::document::value json = bsoncxx::from_json(message);
+            bsoncxx::document::view opt { json.view() };
+
+            bsoncxx::document::element type
+            {
+                opt["type"]
+            };
+
+            auto type_value = type.get_utf8().value;
+
+            stdx::string_view list_type = "list";
+            stdx::string_view requests_type = "requests";
+
+            if (type_value == list_type) {
+                std::string list = "list";
+                std::string execution_output = execute(list);
+                vector<std::string> split_string = string_split(execution_output, " ");
+
+
+//                for (size_t i = 0; i < split_string.size(); i = i + 2) {
+//                    vector<std::string> values = string_split(split_string[i], " ");
+//                    std::string pid = split_string[i + 1];
+
+//                    size_t pid_ok = pid.find("[OK]");
+
+////                    if (pid_ok != std::string::npos)
+////                      pid.erase(pid_ok, 4);
+//                    std::string json = values[2] + "_" + values[3] + "\": {\"utc\": \"" + values[1] + "\", \"ip\": \"" + values[4] + "\", \"port\": \"" + values[5] + "\", \"pid\": \"" + pid + "\"}";
+//                    result.append(json);
+
+//                    if (i == split_string.size()) {
+//                        result.append("}");
+//                    } else if (i != split_string.size()) {
+//                        result.append(",");
+//                    }
+//                }
+
+            } else if (type_value == requests_type) {
+                bsoncxx::document::element command
+                {
+                    opt["command"]
+                };
+
+                // Convert to standard string
+                std::string command_value = static_cast<std::string>(command.get_utf8().value).c_str();
+
+                result = execute(command_value);
+
+                vector<std::string> split_string = string_split(execute(command_value), "\n\n");
+
+                for (size_t i = 0; i < split_string.size(); i = i + 1) {
+                    vector<std::string> values = string_split(split_string[i], "\n");
+                    std::string pid = split_string[i + 1];
+                    boost::trim(values[0]);
+                    boost::trim(values[1]);
+
+                    vector<std::string> arguments = string_split(values[0], " ");
+                    std::string arguments_stringified = "";
+
+                    if (!arguments.empty()) {
+                        for (size_t j = 1; j < split_string.size(); j = j + 1) {
+                            arguments_stringified.append(arguments[j]);
+                        }
+                    }
+
+                    std::string json = "{\"command\": \"" + string_split(values[0], " ")[0] + "\", \"help\": \"" + values[1] + "\", \"arguments\": \"" + arguments_stringified + "\", ";
+                    result.append(json);
+
+                    if (i == split_string.size()) {
+                        result.append("}");
+                    } else if (i != split_string.size()) {
+                        result.append(",");
+                    }
+                }
+
+            } else {
+                result = "{\"Error\": \"Incorrect JSON format or values.\"}";
+            }
+        }
+        catch (bsoncxx::exception err)
+        {
+            cout << "Error parsing JSON." << endl;
+        }
+
+        cout << result << endl;
 
         ws_connection->send(result, [](const SimpleWeb::error_code &ec) {
             if (ec) {
@@ -670,10 +761,16 @@ int main(int argc, char** argv)
         });
     };
 
-    thread server_thread([&server]()
+    thread ws_query_thread([&ws_query]()
     {
       // Start WS-server
-      server.start();
+      ws_query.start();
+    });
+
+    thread ws_live_thread([&ws_live]()
+    {
+      // Start WS-server
+      ws_live.start();
     });
 
     // Create a thread for the data collection and service requests.
@@ -687,7 +784,8 @@ int main(int argc, char** argv)
 
     agent->shutdown();
     collect_data_thread.join();
-    server_thread.join();
+    ws_query_thread.join();
+    ws_live_thread.join();
 
     return 0;
 }
@@ -766,28 +864,30 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
                             // Insert BSON object into collection specified
                             auto insert = collection.insert_one(value);
 
-                            std::string ip = "localhost:8080/live/" + node_type;
+                            std::string ip = "localhost:8081/live/" + node_type;
                             // Websocket client here to broadcast to the WS server, then the WS server broadcasts to all clients that are listening
                             WsClient client(ip);
 
                             client.on_open = [&adata_with_date, &node_type](std::shared_ptr<WsClient::Connection> connection)
                             {
-                            cout << "Client: Broadcasted adata for " << node_type << endl;
+                                cout << "Client: Broadcasted adata for " << node_type << endl;
 
-                            connection->send(adata_with_date);
+                                connection->send(adata_with_date);
 
-                            connection->send_close(1000);
+                                connection->send_close(1000);
                             };
 
                             client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
                             {
-                            cout << "Client: Closed connection with status code " << status << endl;
+                                if (status != 1000) {
+                                    cout << "Client: Closed connection with status code " << status << endl;
+                                }
                             };
 
                             // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
                             client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
                             {
-                            cout << "Client: Error: " << ec << ", error message: " << ec.message() << endl;
+                                cout << "Client: Error: " << ec << ", error message: " << ec.message() << endl;
                             };
 
                             client.start();
