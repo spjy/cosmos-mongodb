@@ -840,9 +840,8 @@ void file_walk() {
     // Get the nodes folder
     fs::path nodes = get_cosmosnodes(true);
 
-    cout << "File: Walking through files." << endl;
-
     while (agent->running()) {
+        cout << "File: Walking through files." << endl;
         for(auto& node: fs::directory_iterator(nodes)) {
             vector<std::string> node_path = string_split(node.path().string(), "/");
 
@@ -855,8 +854,23 @@ void file_walk() {
                     vector<std::string> process_path = string_split(process.path().string(), "/");
 
                     for (auto& telemetry: fs::directory_iterator(process.path())) {
+                        char* buffer[256];
+                        gzread(gzopen(telemetry.path().c_str(), "rb"), buffer, 256);
+
+                        std::string unzip = "gunzip --keep " + telemetry.path().string();
+
+                        system(unzip.c_str());
+
+                        std::string unzipped_file = telemetry.path().string();
+
+                        if (telemetry.path().extension() == ".gz") {
+                            unzipped_file.erase(unzipped_file.size() - 3, 3);
+                        }
+
+                        cout << unzipped_file << endl;
+
                         std::ifstream file;
-                        file.open(telemetry.path());
+                        file.open(unzipped_file);
 
                         std::string entry;
                         std::string node_type = node_path.back() + "_" + process_path.back();
@@ -913,6 +927,7 @@ void file_walk() {
                         archive_file /= telemetry.path().filename().string();
 
                         fs::rename(telemetry, archive_file);
+                        fs::remove(unzipped_file);
 
                         cout << "File: Processed file";
                     }
