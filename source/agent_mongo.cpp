@@ -836,12 +836,18 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
     return;
 }
 
+//! Walk through the directories created by agent_file and process the telemetry data in the incoming folder.
+//! \brief file_walk Loop through nodes, then through the incoming folder, then through each process, and finally through each telemetry file.
+//! Unzip the file, open it and go line by line and insert the entry into the database. Once done, move the processed file into the archive folder.
+//!
 void file_walk() {
     // Get the nodes folder
     fs::path nodes = get_cosmosnodes(true);
 
     while (agent->running()) {
         cout << "File: Walking through files." << endl;
+
+        // Loop through the nodes folder
         for(auto& node: fs::directory_iterator(nodes)) {
             vector<std::string> node_path = string_split(node.path().string(), "/");
 
@@ -849,26 +855,26 @@ void file_walk() {
 
             incoming /= "incoming";
 
+            // Loop through the incoming folder
             if (is_directory(incoming)) {
+                // Loop through the processes folder
                 for (auto& process: fs::directory_iterator(incoming)) {
                     vector<std::string> process_path = string_split(process.path().string(), "/");
 
+                    // Loop through the telemetry files
                     for (auto& telemetry: fs::directory_iterator(process.path())) {
-                        char* buffer[256];
-                        gzread(gzopen(telemetry.path().c_str(), "rb"), buffer, 256);
-
+                        // Uncompress telemetry file
                         std::string unzip = "gunzip --keep " + telemetry.path().string();
-
                         system(unzip.c_str());
 
+                        // Get uncompressed file name (without .gz)
                         std::string unzipped_file = telemetry.path().string();
 
                         if (telemetry.path().extension() == ".gz") {
                             unzipped_file.erase(unzipped_file.size() - 3, 3);
                         }
 
-                        cout << unzipped_file << endl;
-
+                        // Open file for processing
                         std::ifstream file;
                         file.open(unzipped_file);
 
@@ -888,7 +894,7 @@ void file_walk() {
                                 }
                                 catch (const bsoncxx::exception err)
                                 {
-                                    std::cout << "Error converting to BSON from JSON" << std::endl;
+                                    cout << "Error converting to BSON from JSON" << endl;
                                 }
 
                                 try
@@ -896,7 +902,7 @@ void file_walk() {
                                     // Insert BSON object into collection specified
                                     auto insert = collection.insert_one(value);
 
-                                    std::cout << "FILE: Inserted adata into collection " << node_type << std::endl;
+                                    cout << "File: Inserted adata into collection " << node_type << endl;
                                 }
                                 catch (const mongocxx::bulk_write_exception err)
                                 {
@@ -909,27 +915,14 @@ void file_walk() {
 
                         file.close();
 
-                        fs::path archive = node.path();
-                        archive /= "archive";
+                        std::string archive_file = data_base_path(node_path.back(), "archive", process_path.back(), telemetry.path().filename().string());
 
-                        if (!is_directory(archive)) {
-                            fs::create_directory(archive);
-                        }
-
-                        fs::path archive_process = archive;
-                        archive_process /= process_path.back();
-
-                        if (!is_directory(archive_process)) {
-                            fs::create_directory(archive_process);
-                        }
-
-                        fs::path archive_file = archive_process;
-                        archive_file /= telemetry.path().filename().string();
+                        cout << archive_file << endl;
 
                         fs::rename(telemetry, archive_file);
                         fs::remove(unzipped_file);
 
-                        cout << "File: Processed file";
+                        cout << "File: Processed file" << telemetry.path() << endl;
                     }
                 }
             }
