@@ -39,6 +39,7 @@
 #include "support/stringlib.h"
 #include "support/jsondef.h"
 #include "support/jsonlib.h"
+#include "support/datalib.h"
 
 #include <string.h>
 #include <cstring>
@@ -54,8 +55,7 @@
 #include <cstdio>
 #include <stdexcept>
 #include <array>
-
-#include <boost/algorithm/string.hpp>
+#include <experimental/filesystem>
 
 #include <bsoncxx/document/value.hpp>
 #include <bsoncxx/document/view.hpp>
@@ -89,6 +89,7 @@ using WsClient = SimpleWeb::SocketClient<SimpleWeb::WS>;
 using namespace bsoncxx;
 using bsoncxx::builder::basic::kvp;
 using namespace bsoncxx::builder::stream;
+namespace fs = std::experimental::filesystem;
 
 static Agent *agent;
 
@@ -96,7 +97,14 @@ static mongocxx::instance instance
 {};
 
 // Connect to a MongoDB URI and establish connection
-static mongocxx::client connection
+static mongocxx::client connection_ring
+{
+    mongocxx::uri {
+        "mongodb://server:27017/"
+    }
+};
+
+static mongocxx::client connection_file
 {
     mongocxx::uri {
         "mongodb://server:27017/"
@@ -151,15 +159,16 @@ enum class MongoFindOption
     INVALID
 };
 
-std::string execute(const char* cmd);
+std::string execute(std::string cmd);
 void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes);
+void file_walk();
 map<std::string, std::string> get_keys(const std::string &request, const std::string variable_delimiter, const std::string value_delimiter);
 void str_to_lowercase(std::string &input);
 MongoFindOption option_table(std::string input);
 void set_mongo_options(mongocxx::options::find &options, std::string request);
-int32_t request_command(char*, char* response, Agent*);
 
-static std::thread collect_data_thread;
+static thread collect_data_thread;
+static thread file_walk_thread;
 
 /*! Run a command line script and get the output of it.
  * \brief execute Use popen to run a command line script and get the output of the command.
@@ -168,24 +177,28 @@ static std::thread collect_data_thread;
  */
 std::string execute(std::string cmd)
 {
+    try {
+        std::string data;
+        FILE * stream;
+        const int max_buffer = 256;
+        char buffer[max_buffer];
+        cmd.insert(0, "agent ");
+        cmd.append(" 2>&1");
 
-    std::string data;
-    FILE * stream;
-    const int max_buffer = 256;
-    char buffer[max_buffer];
-    cmd.insert(0, "agent ");
-    cmd.append(" 2>&1");
-
-    stream = popen(cmd.c_str(), "r");
-    if (stream)
-    {
-        while (!feof(stream))
+        stream = popen(cmd.c_str(), "r");
+        if (stream)
         {
-            if (fgets(buffer, max_buffer, stream) != NULL) data.append(buffer);
+            while (!feof(stream))
+            {
+                if (fgets(buffer, max_buffer, stream) != NULL) data.append(buffer);
+            }
+            pclose(stream);
         }
-        pclose(stream);
+        return data;
+    } catch (...) {
+        return std::string();
     }
-    return data;
+
 }
 
 /*! Check whether a vector contains a certain value.
@@ -524,19 +537,19 @@ int main(int argc, char** argv)
         ws_connection->send(message, [](const SimpleWeb::error_code &ec)
         {
           if (ec) {
-            cout << "Server: Error sending message. " <<
+            cout << "WS Query: Error sending message. " <<
                 "Error: " << ec << ", error message: " << ec.message() << endl;
           }
         });
 
-        std::cout << "Received request: " << message << std::endl;
+        std::cout << "WS Query: Received request: " << message << std::endl;
 
         bsoncxx::builder::stream::document document {};
         std::string response;
         mongocxx::options::find options;
 
         map<std::string, std::string> input = get_keys(message, "?", "=");
-        mongocxx::collection collection = connection[input["database"]][input["collection"]];
+        mongocxx::collection collection = connection_ring[input["database"]][input["collection"]];
 
         if (!(input.find("options") == input.end()))
         {
@@ -570,13 +583,13 @@ int main(int argc, char** argv)
             }
             catch (mongocxx::logic_error err)
             {
-                std::cout << "Logic error when querying occurred" << std::endl;
+                std::cout << "WS Query: Logic error when querying occurred" << std::endl;
 
                 response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
             }
             catch (bsoncxx::exception err)
             {
-                std::cout << "Could not convert JSON" << std::endl;
+                std::cout << "WS Query: Could not convert JSON" << std::endl;
 
                 response = "{\"error\": \"Improper JSON query.\"}";
             }
@@ -593,7 +606,7 @@ int main(int argc, char** argv)
             }
             catch (mongocxx::query_exception err)
             {
-                std::cout << "Logic error when querying occurred" << std::endl;
+                std::cout << "WS Query: Logic error when querying occurred" << std::endl;
 
                 response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
             }
@@ -631,7 +644,7 @@ int main(int argc, char** argv)
         {
             if (ec)
             {
-                cout << "Server: Error sending message. " << ec.message() << endl;
+                cout << "WS Query: Error sending message. " << ec.message() << endl;
             }
         });
     };
@@ -644,7 +657,7 @@ int main(int argc, char** argv)
 
     query.on_error = [](std::shared_ptr<WsServer::Connection> connection, const SimpleWeb::error_code &ec)
     {
-      cout << "Server: Error in connection " << connection.get() << ". "
+      cout << "WS Query: Error in connection " << connection.get() << ". "
            << "Error: " << ec << ", error message: " << ec.message() << endl;
     };
 
@@ -665,98 +678,12 @@ int main(int argc, char** argv)
     command.on_message = [](std::shared_ptr<WsServer::Connection> ws_connection, std::shared_ptr<WsServer::InMessage> ws_message)
     {
         std::string message = ws_message->string();
-        std::string result = "{";
 
-        try {
-            bsoncxx::document::value json = bsoncxx::from_json(message);
-            bsoncxx::document::view opt { json.view() };
-
-            bsoncxx::document::element type
-            {
-                opt["type"]
-            };
-
-            auto type_value = type.get_utf8().value;
-
-            stdx::string_view list_type = "list";
-            stdx::string_view requests_type = "requests";
-
-            if (type_value == list_type) {
-                std::string list = "list";
-                std::string execution_output = execute(list);
-                vector<std::string> split_string = string_split(execution_output, " ");
-
-
-//                for (size_t i = 0; i < split_string.size(); i = i + 2) {
-//                    vector<std::string> values = string_split(split_string[i], " ");
-//                    std::string pid = split_string[i + 1];
-
-//                    size_t pid_ok = pid.find("[OK]");
-
-////                    if (pid_ok != std::string::npos)
-////                      pid.erase(pid_ok, 4);
-//                    std::string json = values[2] + "_" + values[3] + "\": {\"utc\": \"" + values[1] + "\", \"ip\": \"" + values[4] + "\", \"port\": \"" + values[5] + "\", \"pid\": \"" + pid + "\"}";
-//                    result.append(json);
-
-//                    if (i == split_string.size()) {
-//                        result.append("}");
-//                    } else if (i != split_string.size()) {
-//                        result.append(",");
-//                    }
-//                }
-
-            } else if (type_value == requests_type) {
-                bsoncxx::document::element command
-                {
-                    opt["command"]
-                };
-
-                // Convert to standard string
-                std::string command_value = static_cast<std::string>(command.get_utf8().value).c_str();
-
-                result = execute(command_value);
-
-                vector<std::string> split_string = string_split(execute(command_value), "\n\n");
-
-                for (size_t i = 0; i < split_string.size(); i = i + 1) {
-                    vector<std::string> values = string_split(split_string[i], "\n");
-                    std::string pid = split_string[i + 1];
-                    boost::trim(values[0]);
-                    boost::trim(values[1]);
-
-                    vector<std::string> arguments = string_split(values[0], " ");
-                    std::string arguments_stringified = "";
-
-                    if (!arguments.empty()) {
-                        for (size_t j = 1; j < split_string.size(); j = j + 1) {
-                            arguments_stringified.append(arguments[j]);
-                        }
-                    }
-
-                    std::string json = "{\"command\": \"" + string_split(values[0], " ")[0] + "\", \"help\": \"" + values[1] + "\", \"arguments\": \"" + arguments_stringified + "\", ";
-                    result.append(json);
-
-                    if (i == split_string.size()) {
-                        result.append("}");
-                    } else if (i != split_string.size()) {
-                        result.append(",");
-                    }
-                }
-
-            } else {
-                result = "{\"Error\": \"Incorrect JSON format or values.\"}";
-            }
-        }
-        catch (bsoncxx::exception err)
-        {
-            cout << "Error parsing JSON." << endl;
-        }
-
-        cout << result << endl;
+        std::string result = execute(message);
 
         ws_connection->send(result, [](const SimpleWeb::error_code &ec) {
             if (ec) {
-                cout << "Server: Error sending message. " << ec.message() << endl;
+                cout << "WS Command: Error sending message. " << ec.message() << endl;
             }
         });
     };
@@ -775,6 +702,7 @@ int main(int argc, char** argv)
 
     // Create a thread for the data collection and service requests.
     collect_data_thread = thread(collect_data_loop, std::ref(included_nodes), std::ref(excluded_nodes));
+    file_walk_thread = thread(file_walk);
 
     while(agent->running())
     {
@@ -784,6 +712,7 @@ int main(int argc, char** argv)
 
     agent->shutdown();
     collect_data_thread.join();
+    file_walk_thread.join();
     ws_query_thread.join();
     ws_live_thread.join();
 
@@ -835,7 +764,7 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
                     // Connect to the database and store in the collection of the node name
                     if (whitelisted_node(included_nodes, excluded_nodes, node_type))
                     {
-                        auto collection = connection["agent_dump"][node_type];
+                        auto collection = connection_ring["agent_dump"][node_type];
                         std::string response;
                         mongocxx::options::find options; // store by node
 
@@ -856,7 +785,7 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
                         }
                         catch (const bsoncxx::exception err)
                         {
-                            std::cout << "Error converting to BSON from JSON" << std::endl;
+                            std::cout << "WS Live: Error converting to BSON from JSON" << std::endl;
                         }
 
                         try
@@ -870,7 +799,7 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
 
                             client.on_open = [&adata_with_date, &node_type](std::shared_ptr<WsClient::Connection> connection)
                             {
-                                cout << "Client: Broadcasted adata for " << node_type << endl;
+                                cout << "WS Live: Broadcasted adata for " << node_type << endl;
 
                                 connection->send(adata_with_date);
 
@@ -880,23 +809,23 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
                             client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
                             {
                                 if (status != 1000) {
-                                    cout << "Client: Closed connection with status code " << status << endl;
+                                    cout << "WS Live: Closed connection with status code " << status << endl;
                                 }
                             };
 
                             // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
                             client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
                             {
-                                cout << "Client: Error: " << ec << ", error message: " << ec.message() << endl;
+                                cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
                             };
 
                             client.start();
 
-                            std::cout << "Inserted adata into collection " << node_type << std::endl;
+                            cout << "WS Live: Inserted adata into collection " << node_type << endl;
                         }
                         catch (const mongocxx::bulk_write_exception err)
                         {
-                            cout << "Error writing to database." << endl;
+                            cout << "WS Live: Error writing to database." << endl;
                         }
                     }
                 }
@@ -905,4 +834,94 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
         COSMOS_SLEEP(.1);
     }
     return;
+}
+
+void file_walk() {
+    // Get the nodes folder
+    fs::path nodes = get_cosmosnodes(true);
+
+    cout << "File: Walking through files." << endl;
+
+    while (agent->running()) {
+        for(auto& node: fs::directory_iterator(nodes)) {
+            vector<std::string> node_path = string_split(node.path().string(), "/");
+
+            fs::path incoming = node.path();
+
+            incoming /= "incoming";
+
+            if (is_directory(incoming)) {
+                for (auto& process: fs::directory_iterator(incoming)) {
+                    vector<std::string> process_path = string_split(process.path().string(), "/");
+
+                    for (auto& telemetry: fs::directory_iterator(process.path())) {
+                        std::ifstream file;
+                        file.open(telemetry.path());
+
+                        std::string entry;
+                        std::string node_type = node_path.back() + "_" + process_path.back();
+
+                        if (file) {
+                            while(getline(file, entry)) {
+                                auto collection = connection_file["agent_dump_file"][node_type];
+
+                                bsoncxx::document::view_or_value value;
+
+                                try
+                                {
+                                    // Convert JSON into BSON object to prepare for database insertion
+                                    value = bsoncxx::from_json(entry);
+                                }
+                                catch (const bsoncxx::exception err)
+                                {
+                                    std::cout << "Error converting to BSON from JSON" << std::endl;
+                                }
+
+                                try
+                                {
+                                    // Insert BSON object into collection specified
+                                    auto insert = collection.insert_one(value);
+
+                                    std::cout << "FILE: Inserted adata into collection " << node_type << std::endl;
+                                }
+                                catch (const mongocxx::bulk_write_exception err)
+                                {
+                                    cout << "Error writing to database." << endl;
+                                }
+                            }
+                        } else {
+                            cout << "File: Error reading file." << endl;
+                        }
+
+                        file.close();
+
+                        fs::path archive = node.path();
+                        archive /= "archive";
+
+                        if (!is_directory(archive)) {
+                            fs::create_directory(archive);
+                        }
+
+                        fs::path archive_process = archive;
+                        archive_process /= process_path.back();
+
+                        if (!is_directory(archive_process)) {
+                            fs::create_directory(archive_process);
+                        }
+
+                        fs::path archive_file = archive_process;
+                        archive_file /= telemetry.path().filename().string();
+
+                        fs::rename(telemetry, archive_file);
+
+                        cout << "File: Processed file";
+                    }
+                }
+            }
+        }
+
+        cout << "File: Finished walking through files." << endl;
+
+        COSMOS_SLEEP(60);
+    }
 }
