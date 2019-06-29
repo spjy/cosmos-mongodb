@@ -207,7 +207,7 @@ std::string execute(std::string cmd)
  * \param value
  * \return boolean: true if it was found inthe vector, false if not.
  */
-bool vector_contains(std::vector<std::string> &input_vector, std::string value)
+bool vector_contains(vector<std::string> &input_vector, std::string value)
 {
     for (vector<std::string>::iterator it = input_vector.begin(); it != input_vector.end(); ++it)
     {
@@ -227,7 +227,7 @@ bool vector_contains(std::vector<std::string> &input_vector, std::string value)
  * \param node the node to check against vectors
  * \return whether the node is whitelisted; true if it is, false if it is not.
  */
-bool whitelisted_node(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &node)
+bool whitelisted_node(vector<std::string> &included_nodes, vector<std::string> &excluded_nodes, std::string &node)
 {
     bool whitelisted = false;
 
@@ -291,7 +291,7 @@ void str_to_lowercase(std::string &input)
     std::locale locale;
     for (std::string::size_type i = 0; i < input.length(); ++i)
     {
-        std::tolower(input[i], locale);
+        tolower(input[i], locale);
     }
 }
 
@@ -422,7 +422,6 @@ void set_mongo_options(mongocxx::options::find &options, std::string request)
 int main(int argc, char** argv)
 {
     cout << "Agent Mongo" << endl;
-    std::string nodename = "cubesat1";
     std::string agentname = "mongo";
 
     std::vector<std::string> included_nodes;
@@ -454,8 +453,8 @@ int main(int argc, char** argv)
     if (included_nodes.empty() && excluded_nodes.empty() && !nodes_path.empty())
     {
         // Open file provided by the command line arg
-        std::ifstream nodes;
-        nodes.open(nodes_path, std::ifstream::binary);
+        ifstream nodes;
+        nodes.open(nodes_path, ifstream::binary);
 
         if (nodes.is_open())
         {
@@ -514,11 +513,11 @@ int main(int argc, char** argv)
 
     cout << endl;
 
-    agent = new Agent(nodename, agentname, 1, AGENTMAXBUFFER, false, 20301);
+    agent = new Agent("", agentname, 1, AGENTMAXBUFFER, false, 20301, NetworkType::UDP, 1);
 
     if (agent->cinfo == nullptr)
     {
-        std::cout << "Unable to start agent_mongo" << std::endl;
+        cout << "Unable to start agent_mongo" << endl;
         exit(1);
     }
 
@@ -583,19 +582,19 @@ int main(int argc, char** argv)
             }
             catch (mongocxx::logic_error err)
             {
-                std::cout << "WS Query: Logic error when querying occurred" << std::endl;
+                cout << "WS Query: Logic error when querying occurred" << endl;
 
                 response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
             }
             catch (bsoncxx::exception err)
             {
-                std::cout << "WS Query: Could not convert JSON" << std::endl;
+                cout << "WS Query: Could not convert JSON" << endl;
 
                 response = "{\"error\": \"Improper JSON query.\"}";
             }
 
 
-            std::cout << response << std::endl;
+            cout << response << endl;
         }
         else
         {
@@ -606,13 +605,13 @@ int main(int argc, char** argv)
             }
             catch (mongocxx::query_exception err)
             {
-                std::cout << "WS Query: Logic error when querying occurred" << std::endl;
+                cout << "WS Query: Logic error when querying occurred" << endl;
 
                 response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
             }
             catch (bsoncxx::exception err)
             {
-                std::cout << "Could not convert JSON" << std::endl;
+                cout << "Could not convert JSON" << endl;
 
                 response = "{\"error\": \"Improper JSON query.\"}";
             }
@@ -749,8 +748,8 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
                 if (!padata->empty() && padata->front() == '{' && padata->back() == '}')
                 {
                     // Extract node from jdata
-                    std::string node = json_extract_namedobject(agent->message_ring[my_position].jdata, "agent_node");
-                    std::string type = json_extract_namedobject(agent->message_ring[my_position].jdata, "agent_proc");
+                    std::string node = json_extract_namedmember(agent->message_ring[my_position].jdata, "agent_node");
+                    std::string type = json_extract_namedmember(agent->message_ring[my_position].jdata, "agent_proc");
 
                     // Remove leading and trailing quotes around node
                     node.erase(0, 1);
@@ -771,7 +770,7 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
                         bsoncxx::document::view_or_value value;
 
                         // Extract the date and name of the node
-                        std::string utc = json_extract_namedobject(agent->message_ring[my_position].jdata, "agent_utc");
+                        std::string utc = json_extract_namedmember(agent->message_ring[my_position].jdata, "agent_utc");
 
                         // Copy adata and manipulate string to add the agent_utc (date)
                         std::string adata = agent->message_ring[my_position].adata;
@@ -864,25 +863,24 @@ void file_walk() {
                     // Loop through the telemetry files
                     for (auto& telemetry: fs::directory_iterator(process.path())) {
                         // Uncompress telemetry file
-                        std::string unzip = "gunzip --keep " + telemetry.path().string();
-                        system(unzip.c_str());
 
-                        // Get uncompressed file name (without .gz)
-                        std::string unzipped_file = telemetry.path().string();
-
-                        if (telemetry.path().extension() == ".gz") {
-                            unzipped_file.erase(unzipped_file.size() - 3, 3);
-                        }
-
-                        // Open file for processing
-                        std::ifstream file;
-                        file.open(unzipped_file);
-
-                        std::string entry;
+                        char buffer[20];
                         std::string node_type = node_path.back() + "_" + process_path.back();
 
-                        if (file) {
-                            while(getline(file, entry)) {
+                        gzFile gzf = gzopen(telemetry.path().c_str(), "rb");
+
+                        while (!gzeof(gzf)) {
+                            std::string line;
+                            while (!(line.back() == '\n')) {
+                                gzgets(gzf, buffer, 20);
+
+                                line.append(buffer);
+                            }
+
+                            // Check if it got to end of file in buffer
+                            if (!gzeof(gzf)) {
+                                cout << "LINE: " << line << endl;
+
                                 auto collection = connection_file["agent_dump_file"][node_type];
 
                                 bsoncxx::document::view_or_value value;
@@ -890,7 +888,7 @@ void file_walk() {
                                 try
                                 {
                                     // Convert JSON into BSON object to prepare for database insertion
-                                    value = bsoncxx::from_json(entry);
+                                    value = bsoncxx::from_json(line);
                                 }
                                 catch (const bsoncxx::exception err)
                                 {
@@ -909,18 +907,13 @@ void file_walk() {
                                     cout << "Error writing to database." << endl;
                                 }
                             }
-                        } else {
-                            cout << "File: Error reading file." << endl;
                         }
 
-                        file.close();
+                        gzclose(gzf);
 
                         std::string archive_file = data_base_path(node_path.back(), "archive", process_path.back(), telemetry.path().filename().string());
 
-                        cout << archive_file << endl;
-
                         fs::rename(telemetry, archive_file);
-                        fs::remove(unzipped_file);
 
                         cout << "File: Processed file" << telemetry.path() << endl;
                     }
