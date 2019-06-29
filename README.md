@@ -7,12 +7,16 @@ An agent to save incoming data from the satellite to a database and communicate 
 ```bash
 # Clone repository
 git clone https://github.com/spjy/cosmos-mongodb.git
+mkdir build
+cmake ../source
+make
 ```
 
 ## Running
 
-1. Open the project in Qt Creator.
-2. Run the project by pressing Ctrl + R.
+```
+./agent_mongo
+```
 
 ## Options
 
