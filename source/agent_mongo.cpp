@@ -864,7 +864,7 @@ void file_walk() {
                     for (auto& telemetry: fs::directory_iterator(process.path())) {
                         // Uncompress telemetry file
 
-                        char buffer[20];
+                        char buffer[8192];
                         std::string node_type = node_path.back() + "_" + process_path.back();
 
                         gzFile gzf = gzopen(telemetry.path().c_str(), "rb");
@@ -872,7 +872,7 @@ void file_walk() {
                         while (!gzeof(gzf)) {
                             std::string line;
                             while (!(line.back() == '\n')) {
-                                gzgets(gzf, buffer, 20);
+                                gzgets(gzf, buffer, 8192);
 
                                 line.append(buffer);
                             }
