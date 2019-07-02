@@ -15,10 +15,10 @@ set(USE_COSMOS_FROM "SOURCE")
 #find_package(bsoncxx-3.4.0 COMPONENTS)
 
 #include_directories("/Users/miguelnunes/")
-include_directories("usr/include" "/usr/local/include/mongocxx/v_noabi" "/usr/local/include/bsoncxx/v_noabi" "${CMAKE_SOURCE_DIR}/../include" "/home/spjy/Simple-WebSocket-Server-master/" "/home/spjy/openssl-1.1.0j/include" "/home/spjy/boost_1_70_0/")
-link_directories("/usr/local/lib")
+include_directories("/usr/include" "/usr/local/include/mongocxx/v_noabi" "/usr/local/include/bsoncxx/v_noabi" "${CMAKE_SOURCE_DIR}/include")
+link_directories("/usr/local/lib64")
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -std=c++11 -Wno-invalid-offsetof")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -std=c++17 -Wno-invalid-offsetof")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 
 # -----------------------------------------------
@@ -55,7 +55,7 @@ endif()
 
 add_executable(agent_mongo agent_mongo.cpp)
 
-target_link_libraries(agent_mongo ${COSMOS_LIBS} bson-1.0 bsoncxx mongoc-1.0 mongocxx ssl crypto boost_system)
+target_link_libraries(agent_mongo ${COSMOS_LIBS} bson-1.0 bsoncxx mongoc-1.0 mongocxx ssl crypto boost_system stdc++fs)
 
 # -----------------------------------------------
 # to deploy on a remote device
