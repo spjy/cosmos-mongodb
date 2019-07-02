@@ -20,6 +20,45 @@ make
 
 ## Options
 
+### Websocket
+
+The websocket query listening port is 8080. These are socket requests are used to get data from the agent.
+The websocket live listening port is 8081. These socket requests are used to get data as it is coming in.
+
+#### /query/
+You may send a query string to this endpoint to query the MongoDB database.
+
+**Body**: database=db?collection=coll?multiple=true?query={"key"}?options={"opt": "val"}
+
+**Options**:
+* database (the database name to query)
+* collection (the collection name to query)
+* multiple (whether to return an object or array
+* query (the JSON to query the MongoDB database; see MongoDB docs for more complex queries)
+* options (options provided by MongoDB)
+
+**Return**: Rows from the database specified in the body in JSON format.
+
+#### /command/
+Initialize an agent request, e.g. `agent list`. It runs the command in the command line and returns the output. Omit the `agent ` prefix and only include the command after that.
+
+**Body**: command
+
+**Options**: -
+
+**Return**: The output of the agent request.
+
+#### /live/
+This is a listen-only endpoint. As data is flowing in from any node/process, it will be sent out on this endpoint.
+
+**Body**: None
+
+**Options**: None
+
+**Return**: Data from every node/process in JSON format.
+
+
+
 ### Command Line Options
 
 * --whitelist_file_path
