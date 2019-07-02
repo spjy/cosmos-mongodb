@@ -527,6 +527,12 @@ int main(int argc, char** argv)
     ws_live.config.port = 8081;
 
     // Endpoints for querying the database. Goes to /query/
+    // Example query message: database=db?collection=test?multiple=true?query={"cost": { "$lt": 11 }}?options={"limit": 5}
+    // database: the database name
+    // collection: the collection name
+    // multiple: whether to return in array format/multiple
+    // query: JSON querying the mongo database. See MongoDB docs for more complex queries
+    // options: JSON options
     auto &query = ws_query.endpoint["^/query/?$"];
 
     query.on_message = [](std::shared_ptr<WsServer::Connection> ws_connection, std::shared_ptr<WsServer::InMessage> ws_message)
@@ -863,6 +869,14 @@ void file_walk() {
                     // Loop through the telemetry files
                     for (auto& telemetry: fs::directory_iterator(process.path())) {
                         // Uncompress telemetry file
+
+//                        gzFile gzf = gzopen(telemetry.path().c_str(), "rb");
+
+//                        while (!gzeof(gzf)) {
+//                            std::string entry = log_read(gzf, 8192);
+
+//                            cout << entry << endl;
+//                        }
 
                         char buffer[8192];
                         std::string node_type = node_path.back() + "_" + process_path.back();
