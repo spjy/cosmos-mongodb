@@ -802,7 +802,7 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
                             // Websocket client here to broadcast to the WS server, then the WS server broadcasts to all clients that are listening
                             WsClient client(ip);
 
-                            client.on_open = [&adata_with_date](std::shared_ptr<WsClient::Connection> connection)
+                            client.on_open = [&adata_with_date, &node_type](std::shared_ptr<WsClient::Connection> connection)
                             {
                                 cout << "WS Live: Broadcasted adata for " << node_type << endl;
 
