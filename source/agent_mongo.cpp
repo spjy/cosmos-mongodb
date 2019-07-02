@@ -81,8 +81,8 @@
 #include <mongocxx/cursor.hpp>
 #include <mongocxx/options/find.hpp>
 
-#include <Simple-WebSocket-Server-master/server_ws.hpp>
-#include <Simple-WebSocket-Server-master/client_ws.hpp>
+#include <server_ws.hpp>
+#include <client_ws.hpp>
 
 using WsServer = SimpleWeb::SocketServer<SimpleWeb::WS>;
 using WsClient = SimpleWeb::SocketClient<SimpleWeb::WS>;
