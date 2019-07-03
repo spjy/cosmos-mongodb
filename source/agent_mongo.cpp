@@ -870,14 +870,6 @@ void file_walk() {
                     for (auto& telemetry: fs::directory_iterator(process.path())) {
                         // Uncompress telemetry file
 
-//                        gzFile gzf = gzopen(telemetry.path().c_str(), "rb");
-
-//                        while (!gzeof(gzf)) {
-//                            std::string entry = log_read(gzf, 8192);
-
-//                            cout << entry << endl;
-//                        }
-
                         char buffer[8192];
                         std::string node_type = node_path.back() + "_" + process_path.back();
 
@@ -897,28 +889,51 @@ void file_walk() {
 
                                 auto collection = connection_file["agent_dump_file"][node_type];
 
-                                bsoncxx::document::view_or_value value;
+                                // Get the node's UTC
+                                std::string node_utc = "{\"node_utc\":" + json_extract_namedmember(line, "node_utc") + "}";
 
+                                stdx::optional<bsoncxx::document::value> document;
+
+                                // Query the database for the node_utc.
                                 try
                                 {
-                                    // Convert JSON into BSON object to prepare for database insertion
-                                    value = bsoncxx::from_json(line);
+                                    document = collection.find_one(bsoncxx::from_json(node_utc));
                                 }
-                                catch (const bsoncxx::exception err)
+                                catch (mongocxx::query_exception err)
                                 {
-                                    cout << "Error converting to BSON from JSON" << endl;
+                                    cout << "File: Logic error when querying occurred" << endl;
+                                }
+                                catch (bsoncxx::exception err)
+                                {
+                                    cout << "File: Could not convert JSON" << endl;
                                 }
 
-                                try
+                                // If an entry does not exist with node_utc, write the entry into the database
+                                if (!document)
                                 {
-                                    // Insert BSON object into collection specified
-                                    auto insert = collection.insert_one(value);
+                                    bsoncxx::document::view_or_value value;
 
-                                    cout << "File: Inserted adata into collection " << node_type << endl;
-                                }
-                                catch (const mongocxx::bulk_write_exception err)
-                                {
-                                    cout << "Error writing to database." << endl;
+                                    try
+                                    {
+                                        // Convert JSON into BSON object to prepare for database insertion
+                                        value = bsoncxx::from_json(line);
+                                    }
+                                    catch (const bsoncxx::exception err)
+                                    {
+                                        cout << "Error converting to BSON from JSON" << endl;
+                                    }
+
+                                    try
+                                    {
+                                        // Insert BSON object into collection specified
+                                        auto insert = collection.insert_one(value);
+
+                                        cout << "File: Inserted adata into collection " << node_type << endl;
+                                    }
+                                    catch (const mongocxx::bulk_write_exception err)
+                                    {
+                                        cout << "Error writing to database." << endl;
+                                    }
                                 }
                             }
                         }
