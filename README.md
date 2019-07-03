@@ -75,12 +75,14 @@ This is a listen-only endpoint. As data is flowing in from any node/process, it 
   * A comma delimited list of nodes as strings to not save data to the database or can contain a wildcard to include all nodes.
 * --exclude
   * A comma delimited list of nodes as strings to save data to the database.
+* --database
+  * The database to save agent data to.
 
 **Examples**:
 
 Including and excluding certain nodes:
 ```bash
---include "cubesat1,hsflpc-03,neutron1" --exclude "node1,node-arduino"
+--include "cubesat1,hsflpc-03,neutron1" --exclude "node1,node-arduino" --database "agent_dump"
 ```
 
 Including all and excluding certain nodes:

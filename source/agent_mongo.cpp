@@ -160,8 +160,8 @@ enum class MongoFindOption
 };
 
 std::string execute(std::string cmd);
-void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes);
-void file_walk();
+void collect_data_loop(std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes);
+void file_walk(std::string &database);
 map<std::string, std::string> get_keys(const std::string &request, const std::string variable_delimiter, const std::string value_delimiter);
 void str_to_lowercase(std::string &input);
 MongoFindOption option_table(std::string input);
@@ -427,6 +427,7 @@ int main(int argc, char** argv)
     std::vector<std::string> included_nodes;
     std::vector<std::string> excluded_nodes;
     std::string nodes_path;
+    std::string database = "db";
 
     // Get command line arguments for including/excluding certain nodes
     // If include nodes by file, include path to file through --whitelist_file_path
@@ -446,6 +447,10 @@ int main(int argc, char** argv)
             else if (strncmp(argv[i], "--whitelist_file_path", sizeof(argv[i]) / sizeof(argv[i][0])) == 0)
             {
                 nodes_path = argv[i + 1];
+            }
+            else if (strncmp(argv[i], "--database", sizeof(argv[i]) / sizeof(argv[i][0])) == 0)
+            {
+                database = argv[i + 1];
             }
         }
     }
@@ -511,7 +516,7 @@ int main(int argc, char** argv)
         cout << s + " ";
     }
 
-    cout << endl;
+    cout << endl << "Inserting into database: " << database << endl;
 
     agent = new Agent("", agentname, 1, AGENTMAXBUFFER, false, 20301, NetworkType::UDP, 1);
 
@@ -706,8 +711,8 @@ int main(int argc, char** argv)
     });
 
     // Create a thread for the data collection and service requests.
-    collect_data_thread = thread(collect_data_loop, std::ref(included_nodes), std::ref(excluded_nodes));
-    file_walk_thread = thread(file_walk);
+    collect_data_thread = thread(collect_data_loop, std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes));
+    file_walk_thread = thread(file_walk, std::ref(database));
 
     while(agent->running())
     {
@@ -729,7 +734,7 @@ int main(int argc, char** argv)
  *
  * \param connection MongoDB connection instance
  */
-void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes)
+void collect_data_loop(std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes)
 {
     size_t my_position = static_cast<size_t>(-1);
 
@@ -769,7 +774,7 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
                     // Connect to the database and store in the collection of the node name
                     if (whitelisted_node(included_nodes, excluded_nodes, node_type))
                     {
-                        auto collection = connection_ring["agent_dump"][node_type];
+                        auto collection = connection_ring[database][node_type];
                         std::string response;
                         mongocxx::options::find options; // store by node
 
@@ -845,7 +850,7 @@ void collect_data_loop(std::vector<std::string> &included_nodes, std::vector<std
 //! \brief file_walk Loop through nodes, then through the incoming folder, then through each process, and finally through each telemetry file.
 //! Unzip the file, open it and go line by line and insert the entry into the database. Once done, move the processed file into the archive folder.
 //!
-void file_walk() {
+void file_walk(std::string &database) {
     // Get the nodes folder
     fs::path nodes = get_cosmosnodes(true);
 
@@ -887,7 +892,7 @@ void file_walk() {
                             if (!gzeof(gzf)) {
                                 cout << "LINE: " << line << endl;
 
-                                auto collection = connection_file["agent_dump_file"][node_type];
+                                auto collection = connection_file[database][node_type];
 
                                 // Get the node's UTC
                                 std::string node_utc = "{\"node_utc\":" + json_extract_namedmember(line, "node_utc") + "}";
