@@ -6,16 +6,6 @@ project(${PROJECT_NAME})
 set(COSMOS_SOURCE ${PROJECT_SOURCE_DIR}/../../..)
 set(USE_COSMOS_FROM "SOURCE")
 
-#set(CMAKE_MODULE_PATH "/usr/local/lib/")
-#set(CMAKE_PREFIX_PATH, "/usr/local/lib/cmake/libbsoncxx-3.4.0" "usr/local/lib/cmake/libmongocxx-3.4.0")
-
-#find_package(mongocxx-3.4.0 COMPONENTS)
-#find_package(bsoncxx-3.4.0 COMPONENTS)
-
-#include_directories("/Users/miguelnunes/")
-#include_directories("/usr/include" "/usr/local/include/mongocxx/v_noabi" "/usr/local/include/bsoncxx/v_noabi" "${CMAKE_SOURCE_DIR}/include")
-#link_directories("/usr/local/lib64")
-
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -std=c++17 -Wno-invalid-offsetof")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 
@@ -35,7 +25,7 @@ set(COSMOS_LIBS
 find_package(libmongocxx REQUIRED)
 find_package(libbsoncxx REQUIRED)
 find_package(OpenSSL REQUIRED)
-find_package(Boost COMPONENTS system thread filesystem REQUIRED)
+find_package(Boost COMPONENTS system REQUIRED)
 
 # -----------------------------------------------
 # Windows specific
@@ -43,12 +33,9 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
     set(COSMOS_LIBS ${COSMOS_LIBS} ws2_32)
 endif()
 
-
-
 include_directories(${LIBMONGOCXX_INCLUDE_DIRS} ${LIBBSONCXX_INCLUDE_DIRS})
 link_directories(${LIBMONGOCXX_INCLUDE_DIRS})
 link_directories(${LIBBSONCXX_INCLUDE_DIRS})
-
 
 include_directories(${PROJECT_SOURCE_DIR}/include)
 message(${LIBBSONCXX_INCLUDE_DIRS})
@@ -66,7 +53,6 @@ target_link_libraries(agent_mongo
   ${LIBBSONCXX_LIBRARIES}
   OpenSSL::SSL
   OpenSSL::Crypto
-  ${Boost_FILESYSTEM_LIBRARY}
   ${Boost_SYSTEM_LIBRARY}
   stdc++fs
 )
