@@ -182,7 +182,7 @@ std::string execute(std::string cmd)
         FILE * stream;
         const int max_buffer = 256;
         char buffer[max_buffer];
-        cmd.insert(0, "agent ");
+        cmd.insert(0, "~/cosmos/bin/agent ");
         cmd.append(" 2>&1");
 
         stream = popen(cmd.c_str(), "r");
@@ -674,13 +674,16 @@ int main(int argc, char** argv)
     // For live requests, to broadcast to all clients. Goes to /live/node_name/
     auto &echo_all = ws_live.endpoint["^/live/(.+)/?$"];
 
-    echo_all.on_message = [&echo_all](std::shared_ptr<WsServer::Connection> /* connection */, std::shared_ptr<WsServer::InMessage> in_message)
+    echo_all.on_message = [&echo_all](std::shared_ptr<WsServer::Connection> connection, std::shared_ptr<WsServer::InMessage> in_message)
     {
       auto out_message = in_message->string();
 
       // echo_all.get_connections() can also be used to solely receive connections on this endpoint
-      for(auto &a_connection : echo_all.get_connections())
-          a_connection->send(out_message);
+      for(auto &endpoint_connections : echo_all.get_connections()) {
+          if (connection->path == endpoint_connections->path) {
+              endpoint_connections->send(out_message);
+          }
+      }
     };
 
     auto &command = ws_query.endpoint["^/command/?$"];
@@ -736,112 +739,101 @@ int main(int argc, char** argv)
  */
 void collect_data_loop(std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes)
 {
-    size_t my_position = static_cast<size_t>(-1);
-
     while (agent->running())
     {
-        // Collect new data
-        while (my_position != agent->message_head)
-        {
-            ++my_position;
-            if (my_position >= agent->message_ring.size())
-            {
-                my_position = 0;
-            }
+        int32_t iretn;
 
-            // Check if type of message is a beat or state of health message
-            if (agent->message_ring[my_position].meta.type == Agent::AgentMessage::BEAT || agent->message_ring[my_position].meta.type == Agent::AgentMessage::SOH)
-            {
-                // First use reference to adata to check conditions
-                std::string *padata = &agent->message_ring[my_position].adata;
+        Agent::messstruc message;
+        iretn = agent->readring(message, Agent::AgentMessage::ALL, 1., Agent::Where::HEAD);
 
-                // If no content in adata, don't continue or write to database
-                if (!padata->empty() && padata->front() == '{' && padata->back() == '}')
+        if (iretn > 0) {
+
+            // First use reference to adata to check conditions
+            std::string *padata = &message.adata;
+
+            // If no content in adata, don't continue or write to database
+            if (!padata->empty() && padata->front() == '{' && padata->back() == '}')
+            {
+                // Extract node from jdata
+                std::string node = json_extract_namedmember(message.jdata, "agent_node");
+                std::string type = json_extract_namedmember(message.jdata, "agent_proc");
+
+                // Remove leading and trailing quotes around node
+                node.erase(0, 1);
+                node.pop_back();
+
+                type.erase(0, 1);
+                type.pop_back();
+
+                std::string node_type = node + ":" + type;
+
+                // Connect to the database and store in the collection of the node name
+                if (whitelisted_node(included_nodes, excluded_nodes, node_type))
                 {
-                    // Extract node from jdata
-                    std::string node = json_extract_namedmember(agent->message_ring[my_position].jdata, "agent_node");
-                    std::string type = json_extract_namedmember(agent->message_ring[my_position].jdata, "agent_proc");
+                    auto collection = connection_ring[database][node_type];
+                    std::string response;
+                    mongocxx::options::find options; // store by node
 
-                    // Remove leading and trailing quotes around node
-                    node.erase(0, 1);
-                    node.pop_back();
+                    bsoncxx::document::view_or_value value;
 
-                    type.erase(0, 1);
-                    type.pop_back();
+                    // Copy adata and manipulate string to add the agent_utc (date)
+                    std::string adata = message.adata;
+                    adata.pop_back();
+                    std::string adata_with_date = adata.append(", \"utc\" : " + std::to_string(message.meta.beat.utc) + "}");
 
-                    std::string node_type = node + "_" + type;
-
-                    // Connect to the database and store in the collection of the node name
-                    if (whitelisted_node(included_nodes, excluded_nodes, node_type))
+                    try
                     {
-                        auto collection = connection_ring[database][node_type];
-                        std::string response;
-                        mongocxx::options::find options; // store by node
+                        // Convert JSON into BSON object to prepare for database insertion
+                        value = bsoncxx::from_json(adata_with_date);
+                    }
+                    catch (const bsoncxx::exception err)
+                    {
+                        std::cout << "WS Live: Error converting to BSON from JSON" << std::endl;
+                    }
 
-                        bsoncxx::document::view_or_value value;
+                    try
+                    {
+                        // Insert BSON object into collection specified
+                        auto insert = collection.insert_one(value);
 
-                        // Extract the date and name of the node
-                        std::string utc = json_extract_namedmember(agent->message_ring[my_position].jdata, "agent_utc");
+                        std::string ip = "localhost:8081/live/" + node_type;
+                        // Websocket client here to broadcast to the WS server, then the WS server broadcasts to all clients that are listening
+                        WsClient client(ip);
 
-                        // Copy adata and manipulate string to add the agent_utc (date)
-                        std::string adata = agent->message_ring[my_position].adata;
-                        adata.pop_back();
-                        std::string adata_with_date = adata.append(", \"utc\" : " + utc + "}");
-
-                        try
+                        client.on_open = [&adata_with_date, &node_type](std::shared_ptr<WsClient::Connection> connection)
                         {
-                            // Convert JSON into BSON object to prepare for database insertion
-                            value = bsoncxx::from_json(adata_with_date);
-                        }
-                        catch (const bsoncxx::exception err)
+                            cout << "WS Live: Broadcasted adata for " << node_type << endl;
+
+                            connection->send(adata_with_date);
+
+                            connection->send_close(1000);
+                        };
+
+                        client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
                         {
-                            std::cout << "WS Live: Error converting to BSON from JSON" << std::endl;
-                        }
+                            if (status != 1000) {
+                                cout << "WS Live: Closed connection with status code " << status << endl;
+                            }
+                        };
 
-                        try
+                        // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
+                        client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
                         {
-                            // Insert BSON object into collection specified
-                            auto insert = collection.insert_one(value);
+                            cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
+                        };
 
-                            std::string ip = "localhost:8081/live/" + node_type;
-                            // Websocket client here to broadcast to the WS server, then the WS server broadcasts to all clients that are listening
-                            WsClient client(ip);
+                        client.start();
 
-                            client.on_open = [&adata_with_date, &node_type](std::shared_ptr<WsClient::Connection> connection)
-                            {
-                                cout << "WS Live: Broadcasted adata for " << node_type << endl;
-
-                                connection->send(adata_with_date);
-
-                                connection->send_close(1000);
-                            };
-
-                            client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
-                            {
-                                if (status != 1000) {
-                                    cout << "WS Live: Closed connection with status code " << status << endl;
-                                }
-                            };
-
-                            // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
-                            client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
-                            {
-                                cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
-                            };
-
-                            client.start();
-
-                            cout << "WS Live: Inserted adata into collection " << node_type << endl;
-                        }
-                        catch (const mongocxx::bulk_write_exception err)
-                        {
-                            cout << "WS Live: Error writing to database." << endl;
-                        }
+                        cout << "WS Live: Inserted adata into collection " << node_type << endl;
+                    }
+                    catch (const mongocxx::bulk_write_exception err)
+                    {
+                        cout << "WS Live: Error writing to database." << endl;
                     }
                 }
             }
         }
-        COSMOS_SLEEP(.1);
+        COSMOS_SLEEP(.2);
     }
     return;
 }
@@ -876,7 +868,7 @@ void file_walk(std::string &database) {
                         // Uncompress telemetry file
 
                         char buffer[8192];
-                        std::string node_type = node_path.back() + "_" + process_path.back();
+                        std::string node_type = node_path.back() + ":" + process_path.back();
 
                         gzFile gzf = gzopen(telemetry.path().c_str(), "rb");
 
