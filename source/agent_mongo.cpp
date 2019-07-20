@@ -680,7 +680,7 @@ int main(int argc, char** argv)
 
       // echo_all.get_connections() can also be used to solely receive connections on this endpoint
       for(auto &endpoint_connections : echo_all.get_connections()) {
-          if (connection->path == endpoint_connections->path) {
+          if (connection->path == endpoint_connections->path || endpoint_connections->path == "/live/all" || endpoint_connections->path == "/live/all/") {
               endpoint_connections->send(out_message);
           }
       }
@@ -779,12 +779,13 @@ void collect_data_loop(std::string &database, std::vector<std::string> &included
                     // Copy adata and manipulate string to add the agent_utc (date)
                     std::string adata = message.adata;
                     adata.pop_back();
-                    std::string adata_with_date = adata.append(", \"utc\" : " + std::to_string(message.meta.beat.utc) + "}");
+                    adata.insert(adata.size(), ", \"utc\": " + std::to_string(message.meta.beat.utc));
+                    adata.insert(adata.size(), ", \"node_type\": \"" + node_type + "\"}");
 
                     try
                     {
                         // Convert JSON into BSON object to prepare for database insertion
-                        value = bsoncxx::from_json(adata_with_date);
+                        value = bsoncxx::from_json(adata);
                     }
                     catch (const bsoncxx::exception err)
                     {
@@ -796,35 +797,37 @@ void collect_data_loop(std::string &database, std::vector<std::string> &included
                         // Insert BSON object into collection specified
                         auto insert = collection.insert_one(value);
 
-                        std::string ip = "localhost:8081/live/" + node_type;
-                        // Websocket client here to broadcast to the WS server, then the WS server broadcasts to all clients that are listening
-                        WsClient client(ip);
-
-                        client.on_open = [&adata_with_date, &node_type](std::shared_ptr<WsClient::Connection> connection)
-                        {
-                            cout << "WS Live: Broadcasted adata for " << node_type << endl;
-
-                            connection->send(adata_with_date);
-
-                            connection->send_close(1000);
-                        };
-
-                        client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
-                        {
-                            if (status != 1000) {
-                                cout << "WS Live: Closed connection with status code " << status << endl;
-                            }
-                        };
-
-                        // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
-                        client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
-                        {
-                            cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
-                        };
-
-                        client.start();
-
                         cout << "WS Live: Inserted adata into collection " << node_type << endl;
+
+                        if (type != "exec") {
+                            std::string ip = "localhost:8081/live/" + node_type;
+                            // Websocket client here to broadcast to the WS server, then the WS server broadcasts to all clients that are listening
+                            WsClient client(ip);
+
+                            client.on_open = [&adata, &node_type](std::shared_ptr<WsClient::Connection> connection)
+                            {
+                                cout << "WS Live: Broadcasted adata for " << node_type << endl;
+
+                                connection->send(adata);
+
+                                connection->send_close(1000);
+                            };
+
+                            client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
+                            {
+                                if (status != 1000) {
+                                    cout << "WS Live: Closed connection with status code " << status << endl;
+                                }
+                            };
+
+                            // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
+                            client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
+                            {
+                                cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
+                            };
+
+                            client.start();
+                        }
                     }
                     catch (const mongocxx::bulk_write_exception err)
                     {
@@ -833,7 +836,7 @@ void collect_data_loop(std::string &database, std::vector<std::string> &included
                 }
             }
         }
-        COSMOS_SLEEP(.2);
+        COSMOS_SLEEP(.5);
     }
     return;
 }
