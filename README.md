@@ -6,14 +6,13 @@ An agent to save incoming data from the satellite to a database and communicate 
 
 * C++17
 * GCC 7+
-* Mongocxx
+* Mongocxx / BSONCxx
 * Crypto
 * OpenSSL
 
 ## Installing
 
 ```bash
-# Clone repository
 git clone https://github.com/spjy/cosmos-mongodb.git
 mkdir build
 cmake ../source
@@ -23,7 +22,7 @@ make
 ## Running
 
 ```
-./agent_mongo
+./agent_mongo --database database_name
 ```
 
 ## Options
