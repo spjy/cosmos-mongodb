@@ -14,7 +14,9 @@ An agent to save incoming data from the satellite to a database and communicate 
 
 ```bash
 git clone https://github.com/spjy/cosmos-mongodb.git
+cd cosmos-mongodb
 mkdir build
+cd build
 cmake ../source
 make
 ```
