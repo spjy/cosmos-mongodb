@@ -162,12 +162,12 @@ enum class MongoFindOption
 
 std::string execute(std::string cmd);
 void collect_data_loop(std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes);
-void file_walk(std::string &database);
+void file_walk(std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes);
 map<std::string, std::string> get_keys(const std::string &request, const std::string variable_delimiter, const std::string value_delimiter);
 void str_to_lowercase(std::string &input);
 MongoFindOption option_table(std::string input);
 void set_mongo_options(mongocxx::options::find &options, std::string request);
-void maintain_agent_list();
+void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes);
 
 static thread collect_data_thread;
 static thread file_walk_thread;
@@ -593,6 +593,12 @@ int main(int argc, char** argv)
                     response = "[]";
                 }
             }
+            catch (mongocxx::query_exception err)
+            {
+                cout << "WS Query: Logic error when querying occurred" << endl;
+
+                response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
+            }
             catch (mongocxx::logic_error err)
             {
                 cout << "WS Query: Logic error when querying occurred" << endl;
@@ -717,8 +723,8 @@ int main(int argc, char** argv)
 
     // Create a thread for the data collection and service requests.
     collect_data_thread = thread(collect_data_loop, std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes));
-    file_walk_thread = thread(file_walk, std::ref(database));
-    maintain_agent_list_thread = thread(maintain_agent_list);
+    file_walk_thread = thread(file_walk, std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes));
+    maintain_agent_list_thread = thread(maintain_agent_list, std::ref(included_nodes), std::ref(excluded_nodes));
 
     while(agent->running())
     {
@@ -849,7 +855,7 @@ void collect_data_loop(std::string &database, std::vector<std::string> &included
 //! \brief file_walk Loop through nodes, then through the incoming folder, then through each process, and finally through each telemetry file.
 //! Unzip the file, open it and go line by line and insert the entry into the database. Once done, move the processed file into the archive folder.
 //!
-void file_walk(std::string &database)
+void file_walk(std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes)
 {
     // Get the nodes folder
     fs::path nodes = get_cosmosnodes(true);
@@ -863,100 +869,103 @@ void file_walk(std::string &database)
         {
             vector<std::string> node_path = string_split(node.path().string(), "/");
 
-            fs::path incoming = node.path();
-
-            incoming /= "incoming";
-
-            // Loop through the incoming folder
-            if (is_directory(incoming))
+            if (whitelisted_node(included_nodes, excluded_nodes, node_path.back()))
             {
-                // Loop through the processes folder
-                for (auto& process: fs::directory_iterator(incoming)) {
-                    vector<std::string> process_path = string_split(process.path().string(), "/");
+                fs::path incoming = node.path();
 
-                    // Loop through the telemetry files
-                    for (auto& telemetry: fs::directory_iterator(process.path()))
-                    {
-                        // Uncompress telemetry file
+                incoming /= "incoming";
 
-                        char buffer[8192];
-                        std::string node_type = node_path.back() + ":" + process_path.back();
+                // Loop through the incoming folder
+                if (is_directory(incoming))
+                {
+                    // Loop through the processes folder
+                    for (auto& process: fs::directory_iterator(incoming)) {
+                        vector<std::string> process_path = string_split(process.path().string(), "/");
 
-                        gzFile gzf = gzopen(telemetry.path().c_str(), "rb");
-
-                        while (!gzeof(gzf))
+                        // Loop through the telemetry files
+                        for (auto& telemetry: fs::directory_iterator(process.path()))
                         {
-                            std::string line;
-                            while (!(line.back() == '\n'))
+                            // Uncompress telemetry file
+
+                            char buffer[8192];
+                            std::string node_type = node_path.back() + ":" + process_path.back();
+
+                            gzFile gzf = gzopen(telemetry.path().c_str(), "rb");
+
+                            while (!gzeof(gzf))
                             {
-                                gzgets(gzf, buffer, 8192);
-
-                                line.append(buffer);
-                            }
-
-                            // Check if it got to end of file in buffer
-                            if (!gzeof(gzf))
-                            {
-                                cout << "LINE: " << line << endl;
-
-                                auto collection = connection_file[database][node_type];
-
-                                // Get the node's UTC
-                                std::string node_utc = "{\"node_utc\":" + json_extract_namedmember(line, "node_utc") + "}";
-
-                                stdx::optional<bsoncxx::document::value> document;
-
-                                // Query the database for the node_utc.
-                                try
+                                std::string line;
+                                while (!(line.back() == '\n'))
                                 {
-                                    document = collection.find_one(bsoncxx::from_json(node_utc));
-                                }
-                                catch (mongocxx::query_exception err)
-                                {
-                                    cout << "File: Logic error when querying occurred" << endl;
-                                }
-                                catch (bsoncxx::exception err)
-                                {
-                                    cout << "File: Could not convert JSON" << endl;
+                                    gzgets(gzf, buffer, 8192);
+
+                                    line.append(buffer);
                                 }
 
-                                // If an entry does not exist with node_utc, write the entry into the database
-                                if (!document)
+                                // Check if it got to end of file in buffer
+                                if (!gzeof(gzf))
                                 {
-                                    bsoncxx::document::view_or_value value;
+                                    cout << "LINE: " << line << endl;
 
+                                    auto collection = connection_file[database][node_type];
+
+                                    // Get the node's UTC
+                                    std::string node_utc = "{\"node_utc\":" + json_extract_namedmember(line, "node_utc") + "}";
+
+                                    stdx::optional<bsoncxx::document::value> document;
+
+                                    // Query the database for the node_utc.
                                     try
                                     {
-                                        // Convert JSON into BSON object to prepare for database insertion
-                                        value = bsoncxx::from_json(line);
+                                        document = collection.find_one(bsoncxx::from_json(node_utc));
+                                    }
+                                    catch (mongocxx::query_exception err)
+                                    {
+                                        cout << "File: Logic error when querying occurred" << endl;
+                                    }
+                                    catch (bsoncxx::exception err)
+                                    {
+                                        cout << "File: Could not convert JSON" << endl;
+                                    }
+
+                                    // If an entry does not exist with node_utc, write the entry into the database
+                                    if (!document)
+                                    {
+                                        bsoncxx::document::view_or_value value;
 
                                         try
                                         {
-                                            // Insert BSON object into collection specified
-                                            auto insert = collection.insert_one(value);
+                                            // Convert JSON into BSON object to prepare for database insertion
+                                            value = bsoncxx::from_json(line);
 
-                                            cout << "File: Inserted adata into collection " << node_type << endl;
+                                            try
+                                            {
+                                                // Insert BSON object into collection specified
+                                                auto insert = collection.insert_one(value);
+
+                                                cout << "File: Inserted adata into collection " << node_type << endl;
+                                            }
+                                            catch (const mongocxx::bulk_write_exception err)
+                                            {
+                                                cout << "Error writing to database." << endl;
+                                            }
                                         }
-                                        catch (const mongocxx::bulk_write_exception err)
+                                        catch (const bsoncxx::exception err)
                                         {
-                                            cout << "Error writing to database." << endl;
+                                            cout << "Error converting to BSON from JSON" << endl;
                                         }
-                                    }
-                                    catch (const bsoncxx::exception err)
-                                    {
-                                        cout << "Error converting to BSON from JSON" << endl;
                                     }
                                 }
                             }
+
+                            gzclose(gzf);
+
+                            std::string archive_file = data_base_path(node_path.back(), "archive", process_path.back(), telemetry.path().filename().string());
+
+                            fs::rename(telemetry, archive_file);
+
+                            cout << "File: Processed file" << telemetry.path() << endl;
                         }
-
-                        gzclose(gzf);
-
-                        std::string archive_file = data_base_path(node_path.back(), "archive", process_path.back(), telemetry.path().filename().string());
-
-                        fs::rename(telemetry, archive_file);
-
-                        cout << "File: Processed file" << telemetry.path() << endl;
                     }
                 }
             }
@@ -968,7 +977,11 @@ void file_walk(std::string &database)
     }
 }
 
-void maintain_agent_list() {
+//! Maintain a list of agents and send it through the socket.
+//! \brief maintain_agent_list Query the agent list at a certain interval and maintain the list in a sorted set. Send it off to the websocket if anything changes.
+//! Execute the agent list_json command, check if node is whitelisted, extract data from json, insert into set, if set is changed then send the update via the live websocket.
+//!
+void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes) {
     std::set<std::pair<std::string, std::string>> previousSortedAgents;
 
     while (agent->running())
@@ -1011,9 +1024,14 @@ void maintain_agent_list() {
                         e.get_document().view()["agent_utc"]
                     };
 
-                    std::pair<std::string, std::string> agent_node_proc_utc(bsoncxx::string::to_string(agent_node.get_utf8().value) + ":" + bsoncxx::string::to_string(agent_proc.get_utf8().value), std::to_string(agent_utc.get_double().value));
+                    std::string node = bsoncxx::string::to_string(agent_node.get_utf8().value);
 
-                    sortedAgents.insert(agent_node_proc_utc);
+                    if (whitelisted_node(included_nodes, excluded_nodes, node))
+                    {
+                        std::pair<std::string, std::string> agent_node_proc_utc(node + ":" + bsoncxx::string::to_string(agent_proc.get_utf8().value), std::to_string(agent_utc.get_double().value));
+
+                        sortedAgents.insert(agent_node_proc_utc);
+                    }
                 }
             }
 
