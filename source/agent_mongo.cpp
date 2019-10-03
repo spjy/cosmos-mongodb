@@ -185,7 +185,8 @@ std::string execute(std::string cmd)
         FILE * stream;
         const int max_buffer = 256;
         char buffer[max_buffer];
-        cmd.insert(0, "~/cosmos/bin/agent ");
+        cmd.insert(0, "/bin/bash -c '");
+        cmd.append("'");
         cmd.append(" 2>&1");
 
         stream = popen(cmd.c_str(), "r");
