@@ -13,7 +13,7 @@ An agent to save incoming data from the satellite to a database and communicate 
 ## Installing
 
 ```bash
-git clone https://github.com/spjy/cosmos-mongodb.git
+git clone https://github.com/spjy/cosmos-mongodb.git # clone into cosmos/source/projects/
 cd cosmos-mongodb
 mkdir build
 cd build
