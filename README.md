@@ -5,6 +5,7 @@ An agent to save incoming data from the satellite to a database and communicate 
 ## Requirements
 
 * C++17
+* [Mongo/BSONcxx](http://mongocxx.org/mongocxx-v3/installation/)
 * [GCC/G++ 7.4.0+](https://gist.github.com/jlblancoc/99521194aba975286c80f93e47966dc5)
 * [Crypto](https://github.com/openssl/openssl)
 * [Boost](https://www.boost.org/doc/libs/1_66_0/more/getting_started/unix-variants.html)
