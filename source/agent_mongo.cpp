@@ -41,6 +41,7 @@
 #include "support/jsonlib.h"
 #include "support/datalib.h"
 
+#include <cstdlib>
 #include <string.h>
 #include <cstring>
 #include <iterator>
@@ -96,6 +97,8 @@ static Agent *agent;
 
 static mongocxx::instance instance
 {};
+
+// static std::string mongo = "mongodb://" + (std::string) std::getenv("MONGODB_SERVER") + "/";
 
 // Connect to a MongoDB URI and establish connection
 static mongocxx::client connection_ring
@@ -990,7 +993,7 @@ void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<s
         std::set<std::pair<std::string, std::string>> sortedAgents;
         std::string list;
 
-        list = execute("list_json");
+        list = execute("~/cosmos/bin/agent list_json");
 
         WsClient client("localhost:8081/live/list");
 
