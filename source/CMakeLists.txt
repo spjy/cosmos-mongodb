@@ -6,7 +6,7 @@ project(${PROJECT_NAME})
 set(COSMOS_SOURCE ${PROJECT_SOURCE_DIR}/../../..)
 set(USE_COSMOS_FROM "SOURCE")
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -std=c++17 -Wno-invalid-offsetof")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -std=c++17 -Wno-invalid-offsetof -DLIBUS_USE_LIBUV=1")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 
 # -----------------------------------------------
@@ -39,7 +39,7 @@ link_directories(${LIBBSONCXX_INCLUDE_DIRS})
 
 include_directories(${PROJECT_SOURCE_DIR}/include)
 message(${LIBBSONCXX_INCLUDE_DIRS})
-add_executable(agent_mongo agent_mongo.cpp)
+add_executable(agent_mongo agent_mongo.cpp context.c loop.c socket.c)
 
 target_include_directories(agent_mongo
   PRIVATE ${LIBMONGOCXX_INCLUDE_DIRS} ${LIBBSONCXX_INCLUDE_DIRS} ${PROJECT_SOURCE_DIR}/include

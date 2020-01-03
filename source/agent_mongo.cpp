@@ -83,11 +83,9 @@
 #include <mongocxx/cursor.hpp>
 #include <mongocxx/options/find.hpp>
 
-#include <server_ws.hpp>
-#include <client_ws.hpp>
+#include <libusockets.h>
+#include "App.h"
 
-using WsServer = SimpleWeb::SocketServer<SimpleWeb::WS>;
-using WsClient = SimpleWeb::SocketClient<SimpleWeb::WS>;
 using namespace bsoncxx;
 using bsoncxx::builder::basic::kvp;
 using namespace bsoncxx::builder::stream;
@@ -540,10 +538,13 @@ int main(int argc, char** argv)
         exit(1);
     }
 
-    WsServer ws_query;
-    WsServer ws_live;
-    ws_query.config.port = 8080;
-    ws_live.config.port = 8081;
+    uWS::App()
+        .get("/*", [](auto *res, auto *req) {
+            res->end("Hello World");
+        }).listen(8081, [](auto *token) {
+            if (token) cout << "Port 3000" << endl;
+        }).run();
+
 
     // Endpoints for querying the database. Goes to /query/
     // Example query message: database=db?collection=test?multiple=true?query={"cost": { "$lt": 11 }}?options={"limit": 5}
@@ -552,178 +553,178 @@ int main(int argc, char** argv)
     // multiple: whether to return in array format/multiple
     // query: JSON querying the mongo database. See MongoDB docs for more complex queries
     // options: JSON options
-    auto &query = ws_query.endpoint["^/query/?$"];
+//    auto &query = ws_query.endpoint["^/query/?$"];
 
-    query.on_message = [](std::shared_ptr<WsServer::Connection> ws_connection, std::shared_ptr<WsServer::InMessage> ws_message)
-    {
-        std::string message = ws_message->string();
+//    query.on_message = [](std::shared_ptr<WsServer::Connection> ws_connection, std::shared_ptr<WsServer::InMessage> ws_message)
+//    {
+//        std::string message = ws_message->string();
 
-        std::cout << "WS Query: Received request: " << message << std::endl;
+//        std::cout << "WS Query: Received request: " << message << std::endl;
 
-        bsoncxx::builder::stream::document document {};
-        std::string response;
-        mongocxx::options::find options;
+//        bsoncxx::builder::stream::document document {};
+//        std::string response;
+//        mongocxx::options::find options;
 
-        map<std::string, std::string> input = get_keys(message, "?", "=");
-        mongocxx::collection collection = connection_ring[input["database"]][input["collection"]];
+//        map<std::string, std::string> input = get_keys(message, "?", "=");
+//        mongocxx::collection collection = connection_ring[input["database"]][input["collection"]];
 
-        if (!(input.find("options") == input.end()))
-        {
-            set_mongo_options(options, input["options"]);
-        }
+//        if (!(input.find("options") == input.end()))
+//        {
+//            set_mongo_options(options, input["options"]);
+//        }
 
-        if (input["multiple"] == "true")
-        {
-            try
-            {
-                // Query the database based on the filter
-                mongocxx::cursor cursor = collection.find(bsoncxx::from_json(input["query"]), options);
+//        if (input["multiple"] == "true")
+//        {
+//            try
+//            {
+//                // Query the database based on the filter
+//                mongocxx::cursor cursor = collection.find(bsoncxx::from_json(input["query"]), options);
 
-                // Check if the returned cursor is empty, if so return an empty array
-                if (!(cursor.begin() == cursor.end()))
-                {
-                    std::string data;
+//                // Check if the returned cursor is empty, if so return an empty array
+//                if (!(cursor.begin() == cursor.end()))
+//                {
+//                    std::string data;
 
-                    for (auto document : cursor)
-                    {
-                        data.insert(data.size(), bsoncxx::to_json(document) + ",");
-                    }
+//                    for (auto document : cursor)
+//                    {
+//                        data.insert(data.size(), bsoncxx::to_json(document) + ",");
+//                    }
 
-                    data.pop_back();
-                    response = "[" + data + "]";
-                }
-                else if (cursor.begin() == cursor.end() && response.empty())
-                {
-                    response = "[]";
-                }
-            }
-            catch (mongocxx::query_exception err)
-            {
-                cout << "WS Query: Logic error when querying occurred" << endl;
+//                    data.pop_back();
+//                    response = "[" + data + "]";
+//                }
+//                else if (cursor.begin() == cursor.end() && response.empty())
+//                {
+//                    response = "[]";
+//                }
+//            }
+//            catch (mongocxx::query_exception err)
+//            {
+//                cout << "WS Query: Logic error when querying occurred" << endl;
 
-                response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
-            }
-            catch (mongocxx::logic_error err)
-            {
-                cout << "WS Query: Logic error when querying occurred" << endl;
+//                response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
+//            }
+//            catch (mongocxx::logic_error err)
+//            {
+//                cout << "WS Query: Logic error when querying occurred" << endl;
 
-                response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
-            }
-            catch (bsoncxx::exception err)
-            {
-                cout << "WS Query: Could not convert JSON" << endl;
+//                response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
+//            }
+//            catch (bsoncxx::exception err)
+//            {
+//                cout << "WS Query: Could not convert JSON" << endl;
 
-                response = "{\"error\": \"Improper JSON query.\"}";
-            }
-        }
-        else
-        {
-            stdx::optional<bsoncxx::document::value> document;
-            try
-            {
-                document = collection.find_one(bsoncxx::from_json(input["query"]), options);
+//                response = "{\"error\": \"Improper JSON query.\"}";
+//            }
+//        }
+//        else
+//        {
+//            stdx::optional<bsoncxx::document::value> document;
+//            try
+//            {
+//                document = collection.find_one(bsoncxx::from_json(input["query"]), options);
 
-                // Check if document is empty, if so return an empty object
-                if (document)
-                {
-                    std::string data;
+//                // Check if document is empty, if so return an empty object
+//                if (document)
+//                {
+//                    std::string data;
 
-                    data = bsoncxx::to_json(document.value());
-                    response = data;
+//                    data = bsoncxx::to_json(document.value());
+//                    response = data;
 
-                }
-                else if (!document && response.empty())
-                {
-                    response = "{}";
-                }
-            }
-            catch (mongocxx::query_exception err)
-            {
-                cout << "WS Query: Logic error when querying occurred" << endl;
+//                }
+//                else if (!document && response.empty())
+//                {
+//                    response = "{}";
+//                }
+//            }
+//            catch (mongocxx::query_exception err)
+//            {
+//                cout << "WS Query: Logic error when querying occurred" << endl;
 
-                response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
-            }
-            catch (bsoncxx::exception err)
-            {
-                cout << "Could not convert JSON" << endl;
+//                response = "{\"error\": \"Logic error within the query. Could not query database.\"}";
+//            }
+//            catch (bsoncxx::exception err)
+//            {
+//                cout << "Could not convert JSON" << endl;
 
-                response = "{\"error\": \"Improper JSON query.\"}";
-            }
-        }
+//                response = "{\"error\": \"Improper JSON query.\"}";
+//            }
+//        }
 
-        if (response.empty())
-        {
-            response = "[NOK]";
-        }
+//        if (response.empty())
+//        {
+//            response = "[NOK]";
+//        }
 
-        cout << response << endl;
+//        cout << response << endl;
 
 
-        ws_connection->send(response, [](const SimpleWeb::error_code &ec)
-        {
-            if (ec)
-            {
-                cout << "WS Query: Error sending message. " << ec.message() << endl;
-            }
-        });
-    };
+//        ws_connection->send(response, [](const SimpleWeb::error_code &ec)
+//        {
+//            if (ec)
+//            {
+//                cout << "WS Query: Error sending message. " << ec.message() << endl;
+//            }
+//        });
+//    };
 
-    query.on_open = [](std::shared_ptr<WsServer::Connection> connection)
-    {
-      cout << "Server: Opened connection " << connection.get() << endl;
-      // send token when connected
-    };
+//    query.on_open = [](std::shared_ptr<WsServer::Connection> connection)
+//    {
+//      cout << "Server: Opened connection " << connection.get() << endl;
+//      // send token when connected
+//    };
 
-    query.on_error = [](std::shared_ptr<WsServer::Connection> connection, const SimpleWeb::error_code &ec)
-    {
-      cout << "WS Query: Error in connection " << connection.get() << ". "
-           << "Error: " << ec << ", error message: " << ec.message() << endl;
-    };
+//    query.on_error = [](std::shared_ptr<WsServer::Connection> connection, const SimpleWeb::error_code &ec)
+//    {
+//      cout << "WS Query: Error in connection " << connection.get() << ". "
+//           << "Error: " << ec << ", error message: " << ec.message() << endl;
+//    };
 
-    // For live requests, to broadcast to all clients. Goes to /live/node_name/
-    auto &echo_all = ws_live.endpoint["^/live/(.+)/?$"];
+//    // For live requests, to broadcast to all clients. Goes to /live/node_name/
+//    auto &echo_all = ws_live.endpoint["^/live/(.+)/?$"];
 
-    echo_all.on_message = [&echo_all](std::shared_ptr<WsServer::Connection> connection, std::shared_ptr<WsServer::InMessage> in_message)
-    {
-      auto out_message = in_message->string();
+//    echo_all.on_message = [&echo_all](std::shared_ptr<WsServer::Connection> connection, std::shared_ptr<WsServer::InMessage> in_message)
+//    {
+//      auto out_message = in_message->string();
 
-      // echo_all.get_connections() can also be used to solely receive connections on this endpoint
-      for(auto &endpoint_connections : echo_all.get_connections())
-      {
-          if (connection->path == endpoint_connections->path || endpoint_connections->path == "/live/all" || endpoint_connections->path == "/live/all/")
-          {
-              endpoint_connections->send(out_message);
-          }
-      }
-    };
+//      // echo_all.get_connections() can also be used to solely receive connections on this endpoint
+//      for(auto &endpoint_connections : echo_all.get_connections())
+//      {
+//          if (connection->path == endpoint_connections->path || endpoint_connections->path == "/live/all" || endpoint_connections->path == "/live/all/")
+//          {
+//              endpoint_connections->send(out_message);
+//          }
+//      }
+//    };
 
-    auto &command = ws_query.endpoint["^/command/?$"];
+//    auto &command = ws_query.endpoint["^/command/?$"];
 
-    command.on_message = [](std::shared_ptr<WsServer::Connection> ws_connection, std::shared_ptr<WsServer::InMessage> ws_message)
-    {
-        std::string message = ws_message->string();
+//    command.on_message = [](std::shared_ptr<WsServer::Connection> ws_connection, std::shared_ptr<WsServer::InMessage> ws_message)
+//    {
+//        std::string message = ws_message->string();
 
-        std::string result = execute(message);
+//        std::string result = execute(message);
 
-        ws_connection->send(result, [](const SimpleWeb::error_code &ec)
-        {
-            if (ec) {
-                cout << "WS Command: Error sending message. " << ec.message() << endl;
-            }
-        });
-    };
+//        ws_connection->send(result, [](const SimpleWeb::error_code &ec)
+//        {
+//            if (ec) {
+//                cout << "WS Command: Error sending message. " << ec.message() << endl;
+//            }
+//        });
+//    };
 
-    thread ws_query_thread([&ws_query]()
-    {
-      // Start WS-server
-      ws_query.start();
-    });
+//    thread ws_query_thread([&ws_query]()
+//    {
+//      // Start WS-server
+//      ws_query.start();
+//    });
 
-    thread ws_live_thread([&ws_live]()
-    {
-      // Start WS-server
-      ws_live.start();
-    });
+//    thread ws_live_thread([&ws_live]()
+//    {
+//      // Start WS-server
+//      ws_live.start();
+//    });
 
     // Create a thread for the data collection and service requests.
     collect_data_thread = thread(collect_data_loop, std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes));
@@ -740,8 +741,8 @@ int main(int argc, char** argv)
     collect_data_thread.join();
     file_walk_thread.join();
     maintain_agent_list_thread.join();
-    ws_query_thread.join();
-    ws_live_thread.join();
+//    ws_query_thread.join();
+//    ws_live_thread.join();
 
     return 0;
 }
@@ -811,31 +812,31 @@ void collect_data_loop(std::string &database, std::vector<std::string> &included
                             if (type != "exec") {
                                 std::string ip = "localhost:8081/live/" + node_type;
                                 // Websocket client here to broadcast to the WS server, then the WS server broadcasts to all clients that are listening
-                                WsClient client(ip);
+//                                WsClient client(ip);
 
-                                client.on_open = [&adata, &node_type](std::shared_ptr<WsClient::Connection> connection)
-                                {
-                                    cout << "WS Live: Broadcasted adata for " << node_type << endl;
+//                                client.on_open = [&adata, &node_type](std::shared_ptr<WsClient::Connection> connection)
+//                                {
+//                                    cout << "WS Live: Broadcasted adata for " << node_type << endl;
 
-                                    connection->send(adata);
+//                                    connection->send(adata);
 
-                                    connection->send_close(1000);
-                                };
+//                                    connection->send_close(1000);
+//                                };
 
-                                client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
-                                {
-                                    if (status != 1000) {
-                                        cout << "WS Live: Closed connection with status code " << status << endl;
-                                    }
-                                };
+//                                client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
+//                                {
+//                                    if (status != 1000) {
+//                                        cout << "WS Live: Closed connection with status code " << status << endl;
+//                                    }
+//                                };
 
-                                // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
-                                client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
-                                {
-                                    cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
-                                };
+//                                // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
+//                                client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
+//                                {
+//                                    cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
+//                                };
 
-                                client.start();
+//                                client.start();
                             }
                         }
                         catch (const mongocxx::bulk_write_exception err)
@@ -995,7 +996,7 @@ void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<s
 
         list = execute("~/cosmos/bin/agent list_json");
 
-        WsClient client("localhost:8081/live/list");
+//        WsClient client("localhost:8081/live/list");
 
         try
         {
@@ -1054,29 +1055,29 @@ void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<s
             response.insert(response.size(), "]}");
 
             if (previousSortedAgents != sortedAgents) {
-                client.on_open = [&response](std::shared_ptr<WsClient::Connection> connection)
-                {
-                    cout << "WS Agent Live: Broadcasted updated agent list" << endl;
+//                client.on_open = [&response](std::shared_ptr<WsClient::Connection> connection)
+//                {
+//                    cout << "WS Agent Live: Broadcasted updated agent list" << endl;
 
-                    connection->send(response);
+//                    connection->send(response);
 
-                    connection->send_close(1000);
-                };
+//                    connection->send_close(1000);
+//                };
 
-                client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
-                {
-                    if (status != 1000) {
-                        cout << "WS Live: Closed connection with status code " << status << endl;
-                    }
-                };
+//                client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
+//                {
+//                    if (status != 1000) {
+//                        cout << "WS Live: Closed connection with status code " << status << endl;
+//                    }
+//                };
 
-                // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
-                client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
-                {
-                    cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
-                };
+//                // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
+//                client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
+//                {
+//                    cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
+//                };
 
-                client.start();
+//                client.start();
 
                 previousSortedAgents = sortedAgents;
             }
