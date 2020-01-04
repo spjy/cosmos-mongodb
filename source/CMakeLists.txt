@@ -40,6 +40,7 @@ link_directories(${LIBBSONCXX_INCLUDE_DIRS})
 include_directories(${PROJECT_SOURCE_DIR}/include)
 message(${LIBBSONCXX_INCLUDE_DIRS})
 add_executable(agent_mongo agent_mongo.cpp)
+set_target_properties(agent_mongo PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/../../../../bin)
 
 target_include_directories(agent_mongo
   PRIVATE ${LIBMONGOCXX_INCLUDE_DIRS} ${LIBBSONCXX_INCLUDE_DIRS} ${PROJECT_SOURCE_DIR}/include
