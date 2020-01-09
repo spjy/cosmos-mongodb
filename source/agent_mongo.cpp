@@ -58,6 +58,7 @@
 #include <array>
 #include <experimental/filesystem>
 #include <set>
+#include <tuple>
 
 #include <bsoncxx/document/value.hpp>
 #include <bsoncxx/document/view.hpp>
@@ -334,6 +335,11 @@ MongoFindOption option_table(std::string input)
     if (input == "sort") return MongoFindOption::SORT;
 
     return MongoFindOption::INVALID;
+}
+
+std::tuple<std::string, std::string, std::string> get_agent(std::string node, std::string process, std::string utc, std::string address)
+{
+    return std::make_tuple(node + ":" + process, utc, address);
 }
 
 //! Set the MongoDB find options in the option class given a JSON object of options
@@ -771,6 +777,7 @@ void collect_data_loop(std::string &database, std::vector<std::string> &included
                 // Extract node from jdata
                 std::string node = json_extract_namedmember(message.jdata, "agent_node");
                 std::string type = json_extract_namedmember(message.jdata, "agent_proc");
+                std::string ip = json_extract_namedmember(message.jdata, "agent_addr");
 
                 // Remove leading and trailing quotes around node
                 node.erase(0, 1);
@@ -778,6 +785,9 @@ void collect_data_loop(std::string &database, std::vector<std::string> &included
 
                 type.erase(0, 1);
                 type.pop_back();
+
+                ip.erase(0, 1);
+                ip.pop_back();
 
                 std::string node_type = node + ":" + type;
 
@@ -794,7 +804,8 @@ void collect_data_loop(std::string &database, std::vector<std::string> &included
                     std::string adata = message.adata;
                     adata.pop_back();
                     adata.insert(adata.size(), ", \"utc\": " + std::to_string(message.meta.beat.utc));
-                    adata.insert(adata.size(), ", \"node_type\": \"" + node_type + "\"}");
+                    adata.insert(adata.size(), ", \"node_type\": \"" + node_type + "\"");
+                    adata.insert(adata.size(), ", \"node_ip\": \"" + ip + "\"}");
 
                     try
                     {
@@ -986,11 +997,11 @@ void file_walk(std::string &database, std::vector<std::string> &included_nodes, 
 //! Execute the agent list_json command, check if node is whitelisted, extract data from json, insert into set, if set is changed then send the update via the live websocket.
 //!
 void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes) {
-    std::set<std::pair<std::string, std::string>> previousSortedAgents;
+    std::set<std::tuple<std::string, std::string, std::string>> previousSortedAgents;
 
     while (agent->running())
     {
-        std::set<std::pair<std::string, std::string>> sortedAgents;
+        std::set<std::tuple<std::string, std::string, std::string>> sortedAgents;
         std::string list;
 
         list = execute("~/cosmos/bin/agent list_json");
@@ -1028,13 +1039,18 @@ void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<s
                         e.get_document().view()["agent_utc"]
                     };
 
+                    bsoncxx::document::element agent_addr
+                    {
+                        e.get_document().view()["agent_addr"]
+                    };
+
                     std::string node = bsoncxx::string::to_string(agent_node.get_utf8().value);
 
                     if (whitelisted_node(included_nodes, excluded_nodes, node))
                     {
-                        std::pair<std::string, std::string> agent_node_proc_utc(node + ":" + bsoncxx::string::to_string(agent_proc.get_utf8().value), std::to_string(agent_utc.get_double().value));
+                        auto agent_tuple = get_agent(node, bsoncxx::string::to_string(agent_proc.get_utf8().value), bsoncxx::string::to_string(agent_utc.get_utf8().value), bsoncxx::string::to_string(agent_addr.get_utf8().value));
 
-                        sortedAgents.insert(agent_node_proc_utc);
+                        sortedAgents.insert(agent_tuple);
                     }
                 }
             }
