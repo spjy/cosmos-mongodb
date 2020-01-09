@@ -26,6 +26,12 @@ cmake ../source
 make
 ```
 
+### Changing IP of MongoDB Server
+
+You may need to change the IP and port of the MongoDB server. To do this, on lines 107 and 114, change `server:27017` to the respective `ip:port`.
+
+After saving your changes, simply run `make` in the build folder again and run.
+
 ## Running
 
 ```
