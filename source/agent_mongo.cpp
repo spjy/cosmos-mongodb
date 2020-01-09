@@ -337,11 +337,6 @@ MongoFindOption option_table(std::string input)
     return MongoFindOption::INVALID;
 }
 
-std::tuple<std::string, std::string, std::string> get_agent(std::string node, std::string process, std::string utc, std::string address)
-{
-    return std::make_tuple(node + ":" + process, utc, address);
-}
-
 //! Set the MongoDB find options in the option class given a JSON object of options
 /*!
   \param options The MongoDB find option class to append the options to
@@ -997,11 +992,11 @@ void file_walk(std::string &database, std::vector<std::string> &included_nodes, 
 //! Execute the agent list_json command, check if node is whitelisted, extract data from json, insert into set, if set is changed then send the update via the live websocket.
 //!
 void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes) {
-    std::set<std::tuple<std::string, std::string, std::string>> previousSortedAgents;
+    std::set<std::pair<std::string, std::string>> previousSortedAgents;
 
     while (agent->running())
     {
-        std::set<std::tuple<std::string, std::string, std::string>> sortedAgents;
+        std::set<std::pair<std::string, std::string>> sortedAgents;
         std::string list;
 
         list = execute("~/cosmos/bin/agent list_json");
@@ -1039,18 +1034,13 @@ void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<s
                         e.get_document().view()["agent_utc"]
                     };
 
-                    bsoncxx::document::element agent_addr
-                    {
-                        e.get_document().view()["agent_addr"]
-                    };
-
                     std::string node = bsoncxx::string::to_string(agent_node.get_utf8().value);
 
                     if (whitelisted_node(included_nodes, excluded_nodes, node))
                     {
-                        auto agent_tuple = get_agent(node, bsoncxx::string::to_string(agent_proc.get_utf8().value), bsoncxx::string::to_string(agent_utc.get_utf8().value), bsoncxx::string::to_string(agent_addr.get_utf8().value));
+                        std::pair<std::string, std::string> agent_node_proc_utc(node + ":" + bsoncxx::string::to_string(agent_proc.get_utf8().value), std::to_string(agent_utc.get_double().value));
 
-                        sortedAgents.insert(agent_tuple);
+                        sortedAgents.insert(agent_node_proc_utc);
                     }
                 }
             }
