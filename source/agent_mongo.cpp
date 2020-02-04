@@ -164,14 +164,14 @@ enum class MongoFindOption
     INVALID
 };
 
-std::string execute(std::string cmd);
+std::string execute(std::string cmd, std::string shell);
 void collect_data_loop(std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes);
-void file_walk(std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes);
+void file_walk(std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
 map<std::string, std::string> get_keys(const std::string &request, const std::string variable_delimiter, const std::string value_delimiter);
 void str_to_lowercase(std::string &input);
 MongoFindOption option_table(std::string input);
 void set_mongo_options(mongocxx::options::find &options, std::string request);
-void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes);
+void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &agent_path, std::string &shell);
 
 static thread collect_data_thread;
 static thread file_walk_thread;
@@ -182,14 +182,14 @@ static thread maintain_agent_list_thread;
  * \param cmd the command to run
  * \return the output from the command that was run
  */
-std::string execute(std::string cmd)
+std::string execute(std::string cmd, std::string shell)
 {
     try {
         std::string data;
         FILE * stream;
         const int max_buffer = 256;
         char buffer[max_buffer];
-        cmd.insert(0, "/bin/bash -c '");
+        cmd.insert(0, shell + " -c '");
         cmd.append("'");
         cmd.append(" 2>&1");
 
@@ -435,7 +435,10 @@ int main(int argc, char** argv)
     std::vector<std::string> included_nodes;
     std::vector<std::string> excluded_nodes;
     std::string nodes_path;
+    std::string file_walk_path = get_cosmosnodes(true);
     std::string database = "db";
+    std::string agent_path = "~/cosmos/bin/agent";
+    std::string shell = "/bin/bash";
 
     // Get command line arguments for including/excluding certain nodes
     // If include nodes by file, include path to file through --whitelist_file_path
@@ -459,6 +462,18 @@ int main(int argc, char** argv)
             else if (strncmp(argv[i], "--database", sizeof(argv[i]) / sizeof(argv[i][0])) == 0)
             {
                 database = argv[i + 1];
+            }
+            else if (strncmp(argv[i], "--file_walk_path", sizeof(argv[i]) / sizeof(argv[i][0])) == 0)
+            {
+                file_walk_path = argv[i + 1];
+            }
+            else if (strncmp(argv[i], "--agent_path", sizeof(argv[i]) / sizeof(argv[i][0])) == 0)
+            {
+                agent_path = argv[i + 1];
+            }
+            else if (strncmp(argv[i], "--shell", sizeof(argv[i]) / sizeof(argv[i][0])) == 0)
+            {
+                shell = argv[i + 1];
             }
         }
     }
@@ -532,6 +547,8 @@ int main(int argc, char** argv)
     }
 
     cout << endl << "Inserting into database: " << database << endl;
+
+    cout << "File Walk nodes folder: " << file_walk_path << endl;
 
     agent = new Agent("", agentname, 1, AGENTMAXBUFFER, false, 20301, NetworkType::UDP, 1);
 
@@ -700,11 +717,11 @@ int main(int argc, char** argv)
 
     auto &command = ws_query.endpoint["^/command/?$"];
 
-    command.on_message = [](std::shared_ptr<WsServer::Connection> ws_connection, std::shared_ptr<WsServer::InMessage> ws_message)
+    command.on_message = [&shell](std::shared_ptr<WsServer::Connection> ws_connection, std::shared_ptr<WsServer::InMessage> ws_message)
     {
         std::string message = ws_message->string();
 
-        std::string result = execute(message);
+        std::string result = execute(message, shell);
 
         ws_connection->send(result, [](const SimpleWeb::error_code &ec)
         {
@@ -728,7 +745,7 @@ int main(int argc, char** argv)
 
     // Create a thread for the data collection and service requests.
     collect_data_thread = thread(collect_data_loop, std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes));
-    file_walk_thread = thread(file_walk, std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes));
+    file_walk_thread = thread(file_walk, std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path));
     maintain_agent_list_thread = thread(maintain_agent_list, std::ref(included_nodes), std::ref(excluded_nodes));
 
     while(agent->running())
@@ -865,10 +882,10 @@ void collect_data_loop(std::string &database, std::vector<std::string> &included
 //! \brief file_walk Loop through nodes, then through the incoming folder, then through each process, and finally through each telemetry file.
 //! Unzip the file, open it and go line by line and insert the entry into the database. Once done, move the processed file into the archive folder.
 //!
-void file_walk(std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes)
+void file_walk(std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path)
 {
     // Get the nodes folder
-    fs::path nodes = get_cosmosnodes(true);
+    fs::path nodes = file_walk_path;
 
     while (agent->running())
     {
@@ -902,12 +919,25 @@ void file_walk(std::string &database, std::vector<std::string> &included_nodes, 
 
                             gzFile gzf = gzopen(telemetry.path().c_str(), "rb");
 
+                            if (gzf == Z_NULL) {
+                                cout << "File: Error opening " << telemetry.path().c_str() << endl;
+
+                                break;
+                            }
+
                             while (!gzeof(gzf))
                             {
                                 std::string line;
+
                                 while (!(line.back() == '\n'))
                                 {
-                                    gzgets(gzf, buffer, 8192);
+                                    char *nodeString = gzgets(gzf, buffer, 8192);
+
+                                    if (nodeString == Z_NULL) {
+                                        cout << "File: Error opening " << telemetry.path().c_str() << endl;
+
+                                        break;
+                                    }
 
                                     line.append(buffer);
                                 }
@@ -915,8 +945,6 @@ void file_walk(std::string &database, std::vector<std::string> &included_nodes, 
                                 // Check if it got to end of file in buffer
                                 if (!gzeof(gzf))
                                 {
-                                    cout << "LINE: " << line << endl;
-
                                     auto collection = connection_file[database][node_type];
 
                                     // Get the node's UTC
@@ -957,12 +985,12 @@ void file_walk(std::string &database, std::vector<std::string> &included_nodes, 
                                             }
                                             catch (const mongocxx::bulk_write_exception err)
                                             {
-                                                cout << "Error writing to database." << endl;
+                                                cout << "File: Error writing to database." << endl;
                                             }
                                         }
                                         catch (const bsoncxx::exception err)
                                         {
-                                            cout << "Error converting to BSON from JSON" << endl;
+                                            cout << "File: Error converting to BSON from JSON" << endl;
                                         }
                                     }
                                 }
@@ -972,9 +1000,14 @@ void file_walk(std::string &database, std::vector<std::string> &included_nodes, 
 
                             std::string archive_file = data_base_path(node_path.back(), "archive", process_path.back(), telemetry.path().filename().string());
 
-                            fs::rename(telemetry, archive_file);
+                            try {
+                                fs::rename(telemetry, archive_file);
 
-                            cout << "File: Processed file" << telemetry.path() << endl;
+                                cout << "File: Processed file " << telemetry.path() << endl;
+                            } catch (std::error_code& error) {
+                                cout << "File: Could not rename file " << error.message() << endl;
+                            }
+
                         }
                     }
                 }
@@ -991,7 +1024,7 @@ void file_walk(std::string &database, std::vector<std::string> &included_nodes, 
 //! \brief maintain_agent_list Query the agent list at a certain interval and maintain the list in a sorted set. Send it off to the websocket if anything changes.
 //! Execute the agent list_json command, check if node is whitelisted, extract data from json, insert into set, if set is changed then send the update via the live websocket.
 //!
-void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes) {
+void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &agent_path, std::string &shell) {
     std::set<std::pair<std::string, std::string>> previousSortedAgents;
 
     while (agent->running())
@@ -999,7 +1032,7 @@ void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<s
         std::set<std::pair<std::string, std::string>> sortedAgents;
         std::string list;
 
-        list = execute("~/cosmos/bin/agent list_json");
+        list = execute(agent_path + " list_json", shell);
 
         WsClient client("localhost:8081/live/list");
 
