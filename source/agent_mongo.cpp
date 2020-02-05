@@ -547,8 +547,9 @@ int main(int argc, char** argv)
     }
 
     cout << endl << "Inserting into database: " << database << endl;
-
     cout << "File Walk nodes folder: " << file_walk_path << endl;
+    cout << "Agent path: " << agent_path << endl;
+    cout << "Shell path: " << shell << endl;
 
     agent = new Agent("", agentname, 1, AGENTMAXBUFFER, false, 20301, NetworkType::UDP, 1);
 
@@ -576,7 +577,7 @@ int main(int argc, char** argv)
     {
         std::string message = ws_message->string();
 
-        std::cout << "WS Query: Received request: " << message << std::endl;
+        cout << "WS Query: Received request: " << message << endl;
 
         bsoncxx::builder::stream::document document {};
         std::string response;
@@ -746,7 +747,7 @@ int main(int argc, char** argv)
     // Create a thread for the data collection and service requests.
     collect_data_thread = thread(collect_data_loop, std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes));
     file_walk_thread = thread(file_walk, std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path));
-    maintain_agent_list_thread = thread(maintain_agent_list, std::ref(included_nodes), std::ref(excluded_nodes));
+    maintain_agent_list_thread = thread(maintain_agent_list, std::ref(included_nodes), std::ref(excluded_nodes), std::ref(agent_path), std::ref(shell));
 
     while(agent->running())
     {
@@ -934,7 +935,7 @@ void file_walk(std::string &database, std::vector<std::string> &included_nodes, 
                                     char *nodeString = gzgets(gzf, buffer, 8192);
 
                                     if (nodeString == Z_NULL) {
-                                        cout << "File: Error opening " << telemetry.path().c_str() << endl;
+                                        cout << "File: Error getting string " << telemetry.path().c_str() << endl;
 
                                         break;
                                     }
