@@ -99,23 +99,6 @@ static Agent *agent;
 static mongocxx::instance instance
 {};
 
-// static std::string mongo = "mongodb://" + (std::string) std::getenv("MONGODB_SERVER") + "/";
-
-// Connect to a MongoDB URI and establish connection
-static mongocxx::client connection_ring
-{
-    mongocxx::uri {
-        "mongodb://server:27017/"
-    }
-};
-
-static mongocxx::client connection_file
-{
-    mongocxx::uri {
-        "mongodb://server:27017/"
-    }
-};
-
 //! Options available to specify when querying a Mongo database
 enum class MongoFindOption
 {
@@ -165,8 +148,8 @@ enum class MongoFindOption
 };
 
 std::string execute(std::string cmd, std::string shell);
-void collect_data_loop(std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes);
-void file_walk(std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
+void collect_data_loop(mongocxx::client &connection_ring, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes);
+void file_walk(mongocxx::client &connection_file, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
 map<std::string, std::string> get_keys(const std::string &request, const std::string variable_delimiter, const std::string value_delimiter);
 void str_to_lowercase(std::string &input);
 MongoFindOption option_table(std::string input);
@@ -435,10 +418,11 @@ int main(int argc, char** argv)
     std::vector<std::string> included_nodes;
     std::vector<std::string> excluded_nodes;
     std::string nodes_path;
-    std::string file_walk_path = get_cosmosnodes(true);
     std::string database = "db";
+    std::string file_walk_path = get_cosmosnodes(true);
     std::string agent_path = "~/cosmos/bin/agent";
     std::string shell = "/bin/bash";
+    std::string mongo_server = "mongodb://localhost:27017/";
 
     // Get command line arguments for including/excluding certain nodes
     // If include nodes by file, include path to file through --whitelist_file_path
@@ -474,6 +458,10 @@ int main(int argc, char** argv)
             else if (strncmp(argv[i], "--shell", sizeof(argv[i]) / sizeof(argv[i][0])) == 0)
             {
                 shell = argv[i + 1];
+            }
+            else if (strncmp(argv[i], "--mongo_server", sizeof(argv[i]) / sizeof(argv[i][0])) == 0)
+            {
+                mongo_server = argv[i + 1];
             }
         }
     }
@@ -546,7 +534,8 @@ int main(int argc, char** argv)
         cout << s + " ";
     }
 
-    cout << endl << "Inserting into database: " << database << endl;
+    cout << endl << "MongoDB server: " << mongo_server << endl;
+    cout << "Inserting into database: " << database << endl;
     cout << "File Walk nodes folder: " << file_walk_path << endl;
     cout << "Agent path: " << agent_path << endl;
     cout << "Shell path: " << shell << endl;
@@ -558,6 +547,24 @@ int main(int argc, char** argv)
         cout << "Unable to start agent_mongo" << endl;
         exit(1);
     }
+
+
+    // static std::string mongo = "mongodb://" + (std::string) std::getenv("MONGODB_SERVER") + "/";
+
+    // Connect to a MongoDB URI and establish connection
+    mongocxx::client connection_ring
+    {
+        mongocxx::uri {
+            mongo_server
+        }
+    };
+
+    mongocxx::client connection_file
+    {
+        mongocxx::uri {
+            mongo_server
+        }
+    };
 
     WsServer ws_query;
     WsServer ws_live;
@@ -573,7 +580,7 @@ int main(int argc, char** argv)
     // options: JSON options
     auto &query = ws_query.endpoint["^/query/?$"];
 
-    query.on_message = [](std::shared_ptr<WsServer::Connection> ws_connection, std::shared_ptr<WsServer::InMessage> ws_message)
+    query.on_message = [&connection_ring](std::shared_ptr<WsServer::Connection> ws_connection, std::shared_ptr<WsServer::InMessage> ws_message)
     {
         std::string message = ws_message->string();
 
@@ -745,8 +752,8 @@ int main(int argc, char** argv)
     });
 
     // Create a thread for the data collection and service requests.
-    collect_data_thread = thread(collect_data_loop, std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes));
-    file_walk_thread = thread(file_walk, std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path));
+    collect_data_thread = thread(collect_data_loop, std::ref(connection_ring), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes));
+    file_walk_thread = thread(file_walk, std::ref(connection_file), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path));
     maintain_agent_list_thread = thread(maintain_agent_list, std::ref(included_nodes), std::ref(excluded_nodes), std::ref(agent_path), std::ref(shell));
 
     while(agent->running())
@@ -770,7 +777,7 @@ int main(int argc, char** argv)
  *
  * \param connection MongoDB connection instance
  */
-void collect_data_loop(std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes)
+void collect_data_loop(mongocxx::client &connection_ring, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes)
 {
     while (agent->running())
     {
@@ -883,7 +890,7 @@ void collect_data_loop(std::string &database, std::vector<std::string> &included
 //! \brief file_walk Loop through nodes, then through the incoming folder, then through each process, and finally through each telemetry file.
 //! Unzip the file, open it and go line by line and insert the entry into the database. Once done, move the processed file into the archive folder.
 //!
-void file_walk(std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path)
+void file_walk(mongocxx::client &connection_file, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path)
 {
     // Get the nodes folder
     fs::path nodes = file_walk_path;
