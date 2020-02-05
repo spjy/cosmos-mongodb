@@ -89,6 +89,19 @@ This is a listen-only endpoint. As data is flowing in from any node/process, it 
   * A comma delimited list of nodes as strings to save data to the database.
 * --database
   * The database to save agent data to.
+  * **Default**: `db`
+* --file_walk_path
+  * The directory path containing the COSMOS nodes folder.
+  * **Default**: COSMOS Nodes folder specified by framework
+* --agent_path
+  * The path where the generic agent executable is (e.g. the executable that you run `agent list` with).
+  * **Default**: `~/cosmos/bin/agent`
+* --shell
+  * The location of the shell you would like to run agent commands with.
+  * **Default**: `/bin/bash`
+* --mongo_server
+  * The Mongo server URL (e.g. `mongodb://ip:port`)
+  * **Default**: `mongodb://localhost:27017`
 
 **Examples**:
 
