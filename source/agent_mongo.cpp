@@ -885,7 +885,6 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &database,
     }
     return;
 }
-
 //! Walk through the directories created by agent_file and process the telemetry data in the incoming folder.
 //! \brief file_walk Loop through nodes, then through the incoming folder, then through each process, and finally through each telemetry file.
 //! Unzip the file, open it and go line by line and insert the entry into the database. Once done, move the processed file into the archive folder.
@@ -904,6 +903,7 @@ void file_walk(mongocxx::client &connection_file, std::string &database, std::ve
         {
             vector<std::string> node_path = string_split(node.path().string(), "/");
 
+
             if (whitelisted_node(included_nodes, excluded_nodes, node_path.back()))
             {
                 fs::path incoming = node.path();
@@ -920,92 +920,147 @@ void file_walk(mongocxx::client &connection_file, std::string &database, std::ve
                         // Loop through the telemetry files
                         for (auto& telemetry: fs::directory_iterator(process.path()))
                         {
-                            // Uncompress telemetry file
 
-                            char buffer[8192];
-                            std::string node_type = node_path.back() + ":" + process_path.back();
-
-                            gzFile gzf = gzopen(telemetry.path().c_str(), "rb");
-
-                            if (gzf == Z_NULL) {
-                                cout << "File: Error opening " << telemetry.path().c_str() << endl;
-
-                                break;
-                            }
-
-                            while (!gzeof(gzf))
+                            // only files with JSON structures
+                            if(telemetry.path().filename().string().find(".telemetry") != std::string::npos
+                               || telemetry.path().filename().string().find(".event") != std::string::npos
+                               || telemetry.path().filename().string().find(".command") != std::string::npos)
                             {
-                                std::string line;
+                                // Uncompress telemetry file
+                                char buffer[8192];
+                                std::string node_type = node_path.back() + ":" + process_path.back();
+                                gzFile gzf = gzopen(telemetry.path().c_str(), "rb");
 
-                                while (!(line.back() == '\n'))
-                                {
-                                    char *nodeString = gzgets(gzf, buffer, 8192);
+                                if (gzf == Z_NULL) {
+                                    cout << "File: Error opening " << telemetry.path().c_str() << endl;
+                                    // Move the file out of /incoming if we cannot open it
+                                    std::string corrupt_file = data_base_path(node_path.back(), "corrupt", process_path.back(), telemetry.path().filename().string());
 
-                                    if (nodeString == Z_NULL) {
-                                        cout << "File: Error getting string " << telemetry.path().c_str() << endl;
-
-                                        break;
+                                    try {
+                                        fs::rename(telemetry, corrupt_file);
+                                        cout << "File: Moved file to" << corrupt_file << endl;
+                                    } catch (std::error_code& error) {
+                                        cout << "File: Could not rename file " << error.message() << endl;
                                     }
 
-                                    line.append(buffer);
+                                    continue;
                                 }
 
-                                // Check if it got to end of file in buffer
-                                if (!gzeof(gzf))
+                                // get the file type
+
+                                while (!gzeof(gzf))
                                 {
-                                    auto collection = connection_file[database][node_type];
+                                    std::string line;
 
-                                    // Get the node's UTC
-                                    std::string node_utc = "{\"node_utc\":" + json_extract_namedmember(line, "node_utc") + "}";
+                                    while (!(line.back() == '\n') && !gzeof(gzf))
+                                    {
+                                        char *nodeString = gzgets(gzf, buffer, 8192);
 
-                                    stdx::optional<bsoncxx::document::value> document;
+                                        if (nodeString == Z_NULL) {
+                                            cout << "File: Error getting string " << telemetry.path().c_str() << endl;
 
-                                    // Query the database for the node_utc.
-                                    try
-                                    {
-                                        document = collection.find_one(bsoncxx::from_json(node_utc));
-                                    }
-                                    catch (mongocxx::query_exception err)
-                                    {
-                                        cout << "File: Logic error when querying occurred" << endl;
-                                    }
-                                    catch (bsoncxx::exception err)
-                                    {
-                                        cout << "File: Could not convert JSON" << endl;
+                                            break;
+                                        }
+
+                                        line.append(buffer);
                                     }
 
-                                    // If an entry does not exist with node_utc, write the entry into the database
-                                    if (!document)
+                                    // Check if it got to end of file in buffer
+                                    if (!gzeof(gzf))
                                     {
-                                        bsoncxx::document::view_or_value value;
+                                        // Get the node's UTC
+                                        std::string node_utc = json_extract_namedmember(line, "node_utc");
 
-                                        try
+                                        if(node_utc.length() > 0 )
                                         {
-                                            // Convert JSON into BSON object to prepare for database insertion
-                                            value = bsoncxx::from_json(line);
 
+                                            auto collection = connection_file[database][node_type];
+                                            stdx::optional<bsoncxx::document::value> document;
+
+                                            // Query the database for the node_utc.
                                             try
                                             {
-                                                // Insert BSON object into collection specified
-                                                auto insert = collection.insert_one(value);
-
-                                                cout << "File: Inserted adata into collection " << node_type << endl;
+                                                document = collection.find_one(bsoncxx::from_json("{\"node_utc\":" + node_utc + "}"));
                                             }
-                                            catch (const mongocxx::bulk_write_exception err)
+                                            catch (mongocxx::query_exception err)
                                             {
-                                                cout << "File: Error writing to database." << endl;
+                                                cout << "File: Logic error when querying occurred" << endl;
+                                            }
+                                            catch (bsoncxx::exception err)
+                                            {
+                                                cout << "File: Could not convert JSON" << endl;
+                                            }
+
+                                            // If an entry does not exist with node_utc, write the entry into the database
+                                            if (!document)
+                                            {
+                                                bsoncxx::document::view_or_value value;
+
+                                                try
+                                                {
+                                                    // Convert JSON into BSON object to prepare for database insertion
+                                                    value = bsoncxx::from_json(line);
+
+                                                    try
+                                                    {
+                                                        // Insert BSON object into collection specified
+                                                        auto insert = collection.insert_one(value);
+
+                                                        cout << "File: Inserted adata into collection " << node_type << endl;
+                                                    }
+                                                    catch (const mongocxx::bulk_write_exception err)
+                                                    {
+                                                        cout << "File: Error writing to database." << endl;
+                                                    }
+                                                }
+                                                catch (const bsoncxx::exception err)
+                                                {
+                                                    cout << "File: Error converting to BSON from JSON" << endl;
+                                                }
                                             }
                                         }
-                                        catch (const bsoncxx::exception err)
+                                        else //entries that don't have a "node_utc" field
                                         {
-                                            cout << "File: Error converting to BSON from JSON" << endl;
+                                            node_utc = json_extract_namedmember(line, "event_utc");
+                                            if(node_utc.length() > 0 )
+                                            {
+
+                                                auto collection = connection_file[database][node_type];
+                                                stdx::optional<bsoncxx::document::value> document;
+                                                bsoncxx::document::view_or_value value;
+
+                                                try
+                                                {
+                                                    // Convert JSON into BSON object to prepare for database insertion
+                                                    value = bsoncxx::from_json(line);
+
+                                                    try
+                                                    {
+                                                        // Insert BSON object into collection specified
+                                                        auto insert = collection.insert_one(value);
+
+                                                        cout << "File: Inserted adata into collection " << node_type << endl;
+                                                    }
+                                                    catch (const mongocxx::bulk_write_exception err)
+                                                    {
+                                                        cout << "File: Error writing to database." << endl;
+                                                    }
+                                                }
+                                                catch (const bsoncxx::exception err)
+                                                {
+                                                    cout << "File: Error converting to BSON from JSON" << endl;
+                                                }
+
+                                            }
+
                                         }
                                     }
                                 }
+
+                                gzclose(gzf);
                             }
 
-                            gzclose(gzf);
-
+                            // Move file to archive
                             std::string archive_file = data_base_path(node_path.back(), "archive", process_path.back(), telemetry.path().filename().string());
 
                             try {
