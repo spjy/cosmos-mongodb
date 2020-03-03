@@ -155,10 +155,13 @@ void str_to_lowercase(std::string &input);
 MongoFindOption option_table(std::string input);
 void set_mongo_options(mongocxx::options::find &options, std::string request);
 void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &agent_path, std::string &shell);
+int32_t request_insert(char* request, char* response, Agent* agent);
+
 
 static thread collect_data_thread;
 static thread file_walk_thread;
 static thread maintain_agent_list_thread;
+mongocxx::client connection_file;
 
 /*! Run a command line script and get the output of it.
  * \brief execute Use popen to run a command line script and get the output of the command.
@@ -559,8 +562,7 @@ int main(int argc, char** argv)
         }
     };
 
-    mongocxx::client connection_file
-    {
+    connection_file = {
         mongocxx::uri {
             mongo_server
         }
@@ -750,6 +752,11 @@ int main(int argc, char** argv)
       // Start WS-server
       ws_live.start();
     });
+
+    int32_t iretn;
+    // Add agent request functions
+    if ((iretn=agent->add_request("insert", request_insert, "db collection entry_json", "inserts entry_json to collection in db")))
+        exit (iretn);
 
     // Create a thread for the data collection and service requests.
     collect_data_thread = thread(collect_data_loop, std::ref(connection_ring), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes));
@@ -1191,4 +1198,50 @@ void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<s
         COSMOS_SLEEP(5);
     }
 
+}
+
+int32_t request_insert(char* request, char* response, Agent* agent)
+{
+    std::string req(request);
+    req.erase(0, 7);
+
+    size_t first_ws = req.find(' ');
+    auto db = req.substr(0, first_ws);
+    if(db.length() == 0){
+        sprintf(response,"USAGE: insert database collection entry");
+        return 0;
+    }
+    size_t second_ws = req.substr(first_ws+1).find(' ');
+    auto col = req.substr(first_ws+1, second_ws);
+    auto entry = req.substr(second_ws +1+db.size());
+
+    auto collection = connection_file[db][col];
+    stdx::optional<bsoncxx::document::value> document;
+    bsoncxx::document::view_or_value value;
+
+    try
+    {
+        // Convert JSON into BSON object to prepare for database insertion
+        value = bsoncxx::from_json(entry);
+
+        try
+        {
+            // Insert BSON object into collection specified
+            auto insert = collection.insert_one(value);
+
+            cout << "Request: Inserted adata into collection " << col << endl;
+            sprintf(response,"Inserted adata into collection %s" ,col.c_str());
+        }
+        catch (const mongocxx::bulk_write_exception err)
+        {
+            cout << "Request: Error writing to database." << endl;
+            sprintf(response,"Error writing to database.");
+        }
+    }
+    catch (const bsoncxx::exception err)
+    {
+        cout << "Request: Error converting to BSON from JSON ("<<entry<<")" << endl;
+        sprintf(response,"Error converting to BSON from JSON.");
+    }
+    return 0;
 }
