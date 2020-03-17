@@ -1150,7 +1150,7 @@ void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<s
 
             std::string response = "{\"node_type\": \"list\", \"agent_list\": [";
 
-            std::for_each(sortedAgents.begin(), sortedAgents.end(), [&response](const auto& item)
+            std::for_each(sortedAgents.begin(), sortedAgents.end(), [&response](const std::pair<std::string, std::string> &item)
             {
                 response.insert(response.size(), "{\"agent\": \"" + std::get<0>(item) + "\", \"utc\": \"" + std::get<1>(item) + "\"},");
             });
