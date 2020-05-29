@@ -330,87 +330,109 @@ MongoFindOption option_table(std::string input)
 */
 void set_mongo_options(mongocxx::options::find &options, std::string request)
 {
-    bsoncxx::document::value json = bsoncxx::from_json(request);
-    bsoncxx::document::view opt { json.view() };
+    try {
+	    bsoncxx::document::value json = bsoncxx::from_json(request);
+	    bsoncxx::document::view opt { json.view() };
 
-    for (auto e : opt)
-    {
-        std::string key = std::string(e.key());
+	    for (auto e : opt)
+	    {
+		std::string key = std::string(e.key());
 
-        MongoFindOption option = option_table(key);
+		MongoFindOption option = option_table(key);
 
-        switch(option)
-        {
-            case MongoFindOption::ALLOW_PARTIAL_RESULTS:
-                if (e.type() == type::k_int32)
-                {
-                    options.allow_partial_results(e.get_int32().value);
-                }
-                else if (e.type() == type::k_int64)
-                {
-                    options.allow_partial_results(e.get_int64().value);
-                }
-                break;
-            case MongoFindOption::BATCH_SIZE:
-                if (e.type() == type::k_bool) {
-                    options.batch_size(e.get_bool().value);
-                }
-                break;
-//            case MongoFindOption::COLLATION:
-//                options.batch_size(e.get_int32().value); // string view or value
-//                break;
-            case MongoFindOption::LIMIT:
-                if (e.type() == type::k_int32)
-                {
-                    options.limit(e.get_int32().value);
-                }
-                else if (e.type() == type::k_int64)
-                {
-                    options.limit(e.get_int64().value);
-                }
-                break;
-//            case MongoFindOption::MAX:
-//                options.max(e.get_document()); // bson view or value
-//            case MongoFindOption::MAX_AWAIT_TIME:
-//                options.max_await_time(e.get_date()); // chronos
-//            case MongoFindOption::MAX_TIME:server
-//                options.max_time() // chronos
-//            case MongoFindOption::MIN:
-//                options.min(e.get_document()) // bson view or value
-            case MongoFindOption::NO_CURSOR_TIMEOUT:
-                if (e.type() == type::k_bool)
-                {
-                   options.no_cursor_timeout(e.get_bool().value);
-                }
-                break;
-//            case MongoFindOption::PROJECTION:
-//                options.projection() // bson view or value
-            case MongoFindOption::RETURN_KEY:
-                if (e.type() == type::k_bool)
-                {
-                    options.return_key(e.get_bool().value);
-                }
-                break;
-            case MongoFindOption::SHOW_RECORD_ID:
-                if (e.type() == type::k_bool)
-                {
-                    options.show_record_id(e.get_bool().value);
-                }
-                break;
-            case MongoFindOption::SKIP:
-                if (e.type() == type::k_int32)
-                {
-                    options.skip(e.get_int32().value);
-                } else if (e.type() == type::k_int64) {
-                    options.skip(e.get_int64().value);
-                }
-                break;
-//            case MongoFindOption::SORT:
-//                options.sort(e.get_document()); // bson view or value
-            default:
-                break;
-        }
+		switch(option)
+		{
+		    case MongoFindOption::ALLOW_PARTIAL_RESULTS:
+			if (e.type() == type::k_int32)
+			{
+			    options.allow_partial_results(e.get_int32().value);
+			}
+			else if (e.type() == type::k_int64)
+			{
+			    options.allow_partial_results(e.get_int64().value);
+			}
+			break;
+		    case MongoFindOption::BATCH_SIZE:
+			if (e.type() == type::k_bool) {
+			    options.batch_size(e.get_bool().value);
+			}
+			break;
+	//            case MongoFindOption::COLLATION:
+	//                options.batch_size(e.get_int32().value); // string view or value
+	//                break;
+		    case MongoFindOption::LIMIT:
+			if (e.type() == type::k_int32)
+			{
+			    options.limit(e.get_int32().value);
+			}
+			else if (e.type() == type::k_int64)
+			{
+			    options.limit(e.get_int64().value);
+			}
+			break;
+		    case MongoFindOption::MAX:
+			if (e.type() == type::k_document)
+			{
+			    options.max(bsoncxx::from_json(bsoncxx::to_json(e.get_document()))); // bson view or value
+			}
+			break;
+	//            case MongoFindOption::MAX_AWAIT_TIME:
+	//                options.max_await_time(e.get_date()); // chronos
+	//            case MongoFindOption::MAX_TIME:server
+	//                options.max_time() // chronos
+		    case MongoFindOption::MIN:
+			if (e.type() == type::k_document)
+			{
+			    options.min(bsoncxx::from_json(bsoncxx::to_json(e.get_document()))); // bson view or value
+			}
+			break;
+		    case MongoFindOption::NO_CURSOR_TIMEOUT:
+			if (e.type() == type::k_bool)
+			{
+			    options.no_cursor_timeout(e.get_bool().value);
+			}
+			break;
+		    case MongoFindOption::PROJECTION:
+			// need to convert document to string then back to document view
+			if (e.type() == type::k_document)
+			{
+			    options.projection(bsoncxx::from_json(bsoncxx::to_json(e.get_document()))); // bson view or value
+			}
+			break;
+		    case MongoFindOption::RETURN_KEY:
+			if (e.type() == type::k_bool)
+			{
+			    options.return_key(e.get_bool().value);
+			}
+			break;
+		    case MongoFindOption::SHOW_RECORD_ID:
+			if (e.type() == type::k_bool)
+			{
+			    options.show_record_id(e.get_bool().value);
+			}
+			break;
+		    case MongoFindOption::SKIP:
+			if (e.type() == type::k_int32)
+			{
+			    options.skip(e.get_int32().value);
+			} else if (e.type() == type::k_int64) {
+			    options.skip(e.get_int64().value);
+			}
+			break;
+		    case MongoFindOption::SORT:
+			if (e.type() == type::k_document)
+			{
+			    options.sort(bsoncxx::from_json(bsoncxx::to_json(e.get_document()))); // bson view or value
+			}
+			break;
+		    default:
+			break;
+		}
+	    }
+    } catch (bsoncxx::exception err) {
+	cout << err.what() << " - Error parsing MongoDB find options" << endl;
     }
+
 }
 
 int main(int argc, char** argv)
@@ -683,9 +705,6 @@ int main(int argc, char** argv)
         {
             response = "[NOK]";
         }
-
-        cout << response << endl;
-
 
         ws_connection->send(response, [](const SimpleWeb::error_code &ec)
         {
