@@ -849,7 +849,7 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &database,
                     // Copy adata and manipulate string to add the agent_utc (date)
                     std::string adata = message.adata;
                     adata.pop_back();
-                    adata.insert(adata.size(), ", \"utc\": " + std::to_string(message.meta.beat.utc));
+                    adata.insert(adata.size(), ", \"node_utc\": " + std::to_string(message.meta.beat.utc));
                     adata.insert(adata.size(), ", \"node_type\": \"" + node_type + "\"");
                     adata.insert(adata.size(), ", \"node_ip\": \"" + ip + "\"}");
 
@@ -997,7 +997,7 @@ void file_walk(mongocxx::client &connection_file, std::string &database, std::ve
                                         // Get the node's UTC
                                         std::string node_utc = json_extract_namedmember(line, "node_utc");
 
-                                        if(node_utc.length() > 0 )
+                                        if (node_utc.length() > 0 )
                                         {
 
                                             auto collection = connection_file[database][node_type];
