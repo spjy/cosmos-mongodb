@@ -148,9 +148,10 @@ enum class MongoFindOption
 };
 
 std::string execute(std::string cmd, std::string shell);
+void send_live(const std::string type, std::string &node_type, std::string &line);
 void collect_data_loop(mongocxx::client &connection_ring, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes);
 void file_walk(mongocxx::client &connection_file, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
-void soh_walk(mongocxx::client &connection_file, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path)
+void soh_walk(mongocxx::client &connection_file, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
 map<std::string, std::string> get_keys(const std::string &request, const std::string variable_delimiter, const std::string value_delimiter);
 void str_to_lowercase(std::string &input);
 MongoFindOption option_table(std::string input);
@@ -195,6 +196,37 @@ std::string execute(std::string cmd, std::string shell)
         return std::string();
     }
 
+}
+
+void send_live(const std::string type, std::string &node_type, std::string &line)
+{
+    std::string ip = "localhost:8081/live/" + node_type;
+    // Websocket client here to broadcast to the WS server, then the WS server broadcasts to all clients that are listening
+    WsClient client(ip);
+
+    client.on_open = [type, &line, &node_type](std::shared_ptr<WsClient::Connection> connection)
+    {
+	cout << type << ": Broadcasted adata for " << node_type << endl;
+
+	connection->send(line);
+
+	connection->send_close(1000);
+    };
+
+    client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
+    {
+	if (status != 1000) {
+	    cout << "WS Live: Closed connection with status code " << status << endl;
+	}
+    };
+
+    // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
+    client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
+    {
+	cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
+    };
+
+    client.start();
 }
 
 /*! Check whether a vector contains a certain value.
@@ -778,7 +810,7 @@ int main(int argc, char** argv)
 
     // Create a thread for the data collection and service requests.
     collect_data_thread = thread(collect_data_loop, std::ref(connection_ring), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes));
-    file_walk_thread = thread(file_walk, std::ref(connection_file), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path));
+//    file_walk_thread = thread(file_walk, std::ref(connection_file), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path));
     soh_walk_thread = thread(soh_walk, std::ref(connection_file), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path));
     maintain_agent_list_thread = thread(maintain_agent_list, std::ref(included_nodes), std::ref(excluded_nodes), std::ref(agent_path), std::ref(shell));
 
@@ -790,7 +822,7 @@ int main(int argc, char** argv)
 
     agent->shutdown();
     collect_data_thread.join();
-    file_walk_thread.join();
+//    file_walk_thread.join();
     soh_walk_thread.join();
     maintain_agent_list_thread.join();
     ws_query_thread.join();
@@ -804,6 +836,7 @@ int main(int argc, char** argv)
  *
  * \param connection MongoDB connection instance
  */
+
 void collect_data_loop(mongocxx::client &connection_ring, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes)
 {
     while (agent->running())
@@ -867,33 +900,7 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &database,
                             cout << "WS Live: Inserted adata into collection " << node_type << endl;
 
                             if (type != "exec") {
-                                std::string ip = "localhost:8081/live/" + node_type;
-                                // Websocket client here to broadcast to the WS server, then the WS server broadcasts to all clients that are listening
-                                WsClient client(ip);
-
-                                client.on_open = [&adata, &node_type](std::shared_ptr<WsClient::Connection> connection)
-                                {
-                                    cout << "WS Live: Broadcasted adata for " << node_type << endl;
-
-                                    connection->send(adata);
-
-                                    connection->send_close(1000);
-                                };
-
-                                client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
-                                {
-                                    if (status != 1000) {
-                                        cout << "WS Live: Closed connection with status code " << status << endl;
-                                    }
-                                };
-
-                                // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
-                                client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
-                                {
-                                    cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
-                                };
-
-                                client.start();
+				send_live("WS Live", node_type, adata);
                             }
                         }
                         catch (const mongocxx::bulk_write_exception err)
@@ -929,8 +936,7 @@ void file_walk(mongocxx::client &connection_file, std::string &database, std::ve
         for(auto& node: fs::directory_iterator(nodes))
         {
             vector<std::string> node_path = string_split(node.path().string(), "/");
-
-
+		
             if (whitelisted_node(included_nodes, excluded_nodes, node_path.back()))
             {
                 fs::path incoming = node.path();
@@ -942,10 +948,10 @@ void file_walk(mongocxx::client &connection_file, std::string &database, std::ve
                 {
                     // Loop through the processes folder
                     for (auto& process: fs::directory_iterator(incoming)) {
+			vector<std::string> process_path = string_split(process.path().string(), "/");
 
                         // process soh in another thread, process non-soh processes here
-                        if (process.path.string() != 'soh') {
-                            vector<std::string> process_path = string_split(process.path().string(), "/");
+                        if (process_path.back() != "soh") {
 
                             // Loop through the telemetry files
                             for (auto& telemetry: fs::directory_iterator(process.path()))
@@ -968,12 +974,12 @@ void file_walk(mongocxx::client &connection_file, std::string &database, std::ve
 
                                         try {
                                             fs::rename(telemetry, corrupt_file);
-                                            cout << "File: Moved file to" << corrupt_file << endl;
+                                            cout << "File: Moved corrupt file to" << corrupt_file << endl;
                                         } catch (std::error_code& error) {
                                             cout << "File: Could not rename file " << error.message() << endl;
                                         }
 
-                                        continue;
+                                        break;
                                     }
 
                                     // get the file type
@@ -1137,49 +1143,52 @@ void soh_walk(mongocxx::client &connection_file, std::string &database, std::vec
                 fs::path soh = node.path();
 
                 // Get SOH folder
-                soh /= "incoming" /= "soh";
+                soh /= "incoming";
+		soh /= "soh";
 
                 // Loop through the soh folder
                 if (is_directory(soh))
                 {
                     for (auto& telemetry: fs::directory_iterator(soh)) {
                         // only files with JSON structures
-                        if(telemetry.path().filename().string().find(".telemetry") != std::string::npos
+                        if (telemetry.path().filename().string().find(".telemetry") != std::string::npos
                         || telemetry.path().filename().string().find(".event") != std::string::npos
                         || telemetry.path().filename().string().find(".command") != std::string::npos)
                         {
                             // Uncompress telemetry file
-                            char buffer[8192];
-                            
-                            std::string node_type = "soh" + ":" + process_path.back();
+                            std::string node_type = node_path.back() + ":soh";
                             gzFile gzf = gzopen(telemetry.path().c_str(), "rb");
 
+			    cout << telemetry.path().c_str() << endl;
+
                             if (gzf == Z_NULL) {
-                                cout << "File: Error opening " << telemetry.path().c_str() << endl;
+                                cout << "SOH: Error opening " << telemetry.path().c_str() << endl;
                                 // Move the file out of /incoming if we cannot open it
-                                std::string corrupt_file = data_base_path("soh", "corrupt", process_path.back(), telemetry.path().filename().string());
+                                std::string corrupt_file = data_base_path(node_path.back(), "corrupt", "soh", telemetry.path().filename().string());
 
                                 try {
                                     fs::rename(telemetry, corrupt_file);
-                                    cout << "File: Moved file to" << corrupt_file << endl;
+                                    cout << "SOH: Moved corrupt file to" << corrupt_file << endl;
                                 } catch (std::error_code& error) {
-                                    cout << "File: Could not rename file " << error.message() << endl;
+                                    cout << "SOH: Could not rename file " << error.message() << endl;
                                 }
 
-                                continue;
+                                break;
                             }
 
                             // get the file type
                             while (!gzeof(gzf))
                             {
                                 std::string line;
+				char *nodeString;
+			        char buffer[8192];
 
                                 while (!(line.back() == '\n') && !gzeof(gzf))
                                 {
-                                    char *nodeString = gzgets(gzf, buffer, 8192);
+                                    nodeString = gzgets(gzf, buffer, 8192);
 
                                     if (nodeString == Z_NULL) {
-                                        cout << "File: Error getting string " << telemetry.path().c_str() << endl;
+                                        cout << "SOH: Error getting string " << telemetry.path().c_str() << endl;
 
                                         break;
                                     }
@@ -1188,34 +1197,39 @@ void soh_walk(mongocxx::client &connection_file, std::string &database, std::vec
                                 }
 
                                 // Check if it got to end of file in buffer
-                                if (!gzeof(gzf))
+                                if (!gzeof(gzf) && nodeString != Z_NULL)
                                 {
                                     // Get the node's UTC
                                     std::string node_utc = json_extract_namedmember(line, "node_utc");
 
-                                    if(node_utc.length() > 0 )
+                                    if (node_utc.length() > 0)
                                     {
-
                                         auto collection = connection_file[database][node_type];
                                         stdx::optional<bsoncxx::document::value> document;
 
                                         // Query the database for the node_utc.
                                         try
                                         {
-                                            document = collection.find_one(bsoncxx::from_json("{\"node_utc\":" + node_utc + "}"));
+                                            document = collection.find_one(bsoncxx::builder::basic::make_document(kvp("node_utc", stod(node_utc))));
                                         }
                                         catch (mongocxx::query_exception err)
                                         {
-                                            cout << "File: Logic error when querying occurred" << endl;
+                                            cout << "SOH: Logic error when querying occurred" << endl;
                                         }
                                         catch (bsoncxx::exception err)
                                         {
-                                            cout << "File: Could not convert JSON" << endl;
+                                            cout << "SOH: Could not convert JSON" << endl;
                                         }
                                         
                                         // Append node_type for live values
-                                        line.pop_back();
-                                        adata.insert(adata.size(), ", \"node_type\": \"" + node_type + "\"}");
+                                        line.pop_back(); // Rid of \n newline char
+
+					// Rid of curly bracket if we pop the newline character
+                                        if (line.back() == '}') {
+					    line.pop_back();
+					}
+
+                                        line.insert(line.size(), ", \"node_type\": \"" + node_type + "\"}");
 
                                         // If an entry does not exist with node_utc, write the entry into the database
                                         if (!document)
@@ -1232,53 +1246,26 @@ void soh_walk(mongocxx::client &connection_file, std::string &database, std::vec
                                                     // Insert BSON object into collection specified
                                                     auto insert = collection.insert_one(value);
 
-                                                    std::string ip = "localhost:8081/live/" + node_type;
-                                                    // Websocket client here to broadcast to the WS server, then the WS server broadcasts to all clients that are listening
-                                                    WsClient client(ip);
+					   	    send_live("SOH", node_type, line);
 
-                                                    client.on_open = [&line, &node_type](std::shared_ptr<WsClient::Connection> connection)
-                                                    {
-                                                        cout << "SOH Walk: Broadcasted adata for " << node_type << endl;
-
-                                                        connection->send(line);
-
-                                                        connection->send_close(1000);
-                                                    };
-
-                                                    client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
-                                                    {
-                                                        if (status != 1000) {
-                                                            cout << "WS Live: Closed connection with status code " << status << endl;
-                                                        }
-                                                    };
-
-                                                    // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
-                                                    client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
-                                                    {
-                                                        cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
-                                                    };
-
-                                                    client.start();
-
-                                                    cout << "File: Inserted adata into collection " << node_type << endl;
+                                                    cout << "SOH: Inserted adata into collection " << node_type << endl;
                                                 }
                                                 catch (const mongocxx::bulk_write_exception err)
                                                 {
-                                                    cout << "File: Error writing to database." << endl;
+                                                    cout << "SOH: Error writing to database." << endl;
                                                 }
                                             }
                                             catch (const bsoncxx::exception err)
                                             {
-                                                cout << "File: Error converting to BSON from JSON" << endl;
+                                                cout << "SOH: Error converting to BSON from JSON" << endl;
                                             }
                                         }
                                     }
                                     else //entries that don't have a "node_utc" field
                                     {
                                         node_utc = json_extract_namedmember(line, "event_utc");
-                                        if(node_utc.length() > 0 )
+                                        if (node_utc.length() > 0)
                                         {
-
                                             auto collection = connection_file[database][node_type];
                                             stdx::optional<bsoncxx::document::value> document;
                                             bsoncxx::document::view_or_value value;
@@ -1293,71 +1280,49 @@ void soh_walk(mongocxx::client &connection_file, std::string &database, std::vec
                                                     // Insert BSON object into collection specified
                                                     auto insert = collection.insert_one(value);
 
-                                                     std::string ip = "localhost:8081/live/" + node_type;
-                                                    // Websocket client here to broadcast to the WS server, then the WS server broadcasts to all clients that are listening
-                                                    WsClient client(ip);
+					   	    send_live("SOH", node_type, line);
 
-                                                    client.on_open = [&line, &node_type](std::shared_ptr<WsClient::Connection> connection)
-                                                    {
-                                                        cout << "SOH Walk: Broadcasted adata for " << node_type << endl;
-
-                                                        connection->send(line);
-
-                                                        connection->send_close(1000);
-                                                    };
-
-                                                    client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
-                                                    {
-                                                        if (status != 1000) {
-                                                            cout << "WS Live: Closed connection with status code " << status << endl;
-                                                        }
-                                                    };
-
-                                                    // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
-                                                    client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
-                                                    {
-                                                        cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
-                                                    };
-
-                                                    client.start();
-
-                                                    cout << "File: Inserted adata into collection " << node_type << endl;
+                                                    cout << "SOH: Inserted adata into collection " << node_type << endl;
                                                 }
                                                 catch (const mongocxx::bulk_write_exception err)
                                                 {
-                                                    cout << "File: Error writing to database." << endl;
+                                                    cout << "SOH: Error writing to database." << endl;
                                                 }
                                             }
                                             catch (const bsoncxx::exception err)
                                             {
-                                                cout << "File: Error converting to BSON from JSON" << endl;
+                                                cout << "SOH: Error converting to BSON from JSON" << endl;
                                             }
 
                                         }
 
                                     }
                                 }
+				else
+				{
+				    break;
+				}
                             }
 
                             gzclose(gzf);
                         }
 
                         // Move file to archive
-                        std::string archive_file = data_base_path(node_path.back(), "archive", process_path.back(), telemetry.path().filename().string());
+                        std::string archive_file = data_base_path(node_path.back(), "archive", "soh", telemetry.path().filename().string());
 
                         try {
                             fs::rename(telemetry, archive_file);
 
-                            cout << "File: Processed file " << telemetry.path() << endl;
+                            cout << "SOH: Processed file " << telemetry.path() << endl;
                         } catch (std::error_code& error) {
-                            cout << "File: Could not rename file " << error.message() << endl;
+                            cout << "SOH: Could not rename file " << error.message() << endl;
                         }
                     }
                 }
             }
         }
 
-        cout << "File: Finished walking through files." << endl;
+        cout << "SOH: Finished walking through SOH." << endl;
 
         COSMOS_SLEEP(300);
     }
