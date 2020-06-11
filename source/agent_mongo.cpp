@@ -311,7 +311,52 @@ int main(int argc, char** argv)
     };
 
     // Get namespace nodes, processes and pieces
-    query.resource["^/namespace/processes$"]["GET"] = [&file_walk_path](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+    query.resource["^/namespace/agents$"]["GET"] = [&file_walk_path](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+        fs::path nodes = file_walk_path;
+        std::ostringstream nodeproc_list;
+
+        // Array bracket
+        nodeproc_list << "{";
+
+        // Iterate through nodes folder
+        for (auto& node: fs::directory_iterator(nodes)) {
+            vector<std::string> node_path = string_split(node.path().string(), "/");
+
+            fs::path incoming = node.path();
+
+            // Read agents on node
+            incoming /= "incoming";
+
+            nodeproc_list << "\"" + node_path.back() + "\": [";
+
+            // Loop through the incoming folder
+            if (is_directory(incoming)) {
+                // Loop through the processes folder
+                for (auto& process: fs::directory_iterator(incoming)) {
+                    vector<std::string> process_path = string_split(process.path().string(), "/");
+
+                    nodeproc_list << "\"" + process_path.back() + "\",";
+                }
+
+                // Remove dangling comma
+                nodeproc_list.seekp(-1, std::ios_base::end);
+            }
+
+            nodeproc_list << "],";
+        }
+
+        // Remove dangling comma
+        nodeproc_list.seekp(-1, std::ios_base::end);
+
+        // End array
+        nodeproc_list << "}";
+
+        // Send response
+        resp->write(nodeproc_list.str());
+    };
+
+    // Get namespace nodes, processes and pieces
+    query.resource["^/namespace/pieces$"]["GET"] = [&file_walk_path](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         fs::path nodes = file_walk_path;
         std::ostringstream nodeproc_list;
 
