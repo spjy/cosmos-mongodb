@@ -180,27 +180,17 @@ int main(int argc, char** argv)
     HttpServer query;
     query.config.port = 8082;
 
-    query.default_resource["OPTIONS"] = [](std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request) {
-      try {
-
-          // Set header fields
-          SimpleWeb::CaseInsensitiveMultimap header;
-          header.emplace("Content-Type", "application/json");
-          header.emplace("Access-Control-Allow-Origin", "*");
-          header.emplace("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
-          header.emplace("Access-Control-Max-Age", "1728000");
-          header.emplace("Access-Control-Allow-Headers", "authorization,content-type");
-
-          response->write(SimpleWeb::StatusCode::success_ok, "", header);
-
-      } catch(const exception &e) {
-          response->write(SimpleWeb::StatusCode::client_error_bad_request, e.what());
-      }
-    };
+    // Set header fields
+    SimpleWeb::CaseInsensitiveMultimap header;
+    header.emplace("Content-Type", "application/json");
+    header.emplace("Access-Control-Allow-Origin", "*");
+    header.emplace("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
+    header.emplace("Access-Control-Max-Age", "1728000");
+    header.emplace("Access-Control-Allow-Headers", "authorization,content-type");
 
     // Endpoint is /query/database/node:process, responds with query
     // Payload is { "options": {}, "multiple": bool, "query": {} }
-    query.resource["^/query/(.+)/(.+)/?$"]["GET"] = [&connection_ring](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+    query.resource["^/query/(.+)/(.+)/?$"]["GET"] = [&connection_ring, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         // Get http payload
         std::string message = request->content.string();
         std::string options = json_extract_namedmember(message, "options");
@@ -289,21 +279,21 @@ int main(int argc, char** argv)
         }
 
         // Return response
-        resp->write(response);
+        resp->write(response, header);
     };
 
     // Query agent executable
-    query.resource["^/command$"]["GET"] = [&shell](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+    query.resource["^/command$"]["GET"] = [&shell, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         std::string message = request->content.string();
         std::string command = json_extract_namedmember(message, "command");
 
         std::string result = execute(command, shell);
 
-        resp->write(result);
+        resp->write(result, header);
     };
 
     // Get namespace nodes
-    query.resource["^/namespace/nodes$"]["GET"] = [&file_walk_path](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+    query.resource["^/namespace/nodes$"]["GET"] = [&file_walk_path, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         fs::path nodes = file_walk_path;
         std::ostringstream nodes_list;
 
@@ -325,11 +315,11 @@ int main(int argc, char** argv)
         nodes_list << "]";
 
         // Send response
-        resp->write(nodes_list.str());
+        resp->write(nodes_list.str(), header);
     };
 
     // Get namespace nodes, processes and pieces
-    query.resource["^/namespace/agents$"]["GET"] = [&file_walk_path](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+    query.resource["^/namespace/agents$"]["GET"] = [&file_walk_path, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         fs::path nodes = file_walk_path;
         std::ostringstream nodeproc_list;
 
@@ -370,11 +360,11 @@ int main(int argc, char** argv)
         nodeproc_list << "}";
 
         // Send response
-        resp->write(nodeproc_list.str());
+        resp->write(nodeproc_list.str(), header);
     };
 
     // Get namespace nodes, processes and pieces
-    query.resource["^/namespace/pieces$"]["GET"] = [&file_walk_path](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+    query.resource["^/namespace/pieces$"]["GET"] = [&file_walk_path, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         fs::path nodes = file_walk_path;
         std::ostringstream nodeproc_list;
 
@@ -437,7 +427,7 @@ int main(int argc, char** argv)
         nodeproc_list << "}";
 
         // Send response
-        resp->write(nodeproc_list.str());
+        resp->write(nodeproc_list.str(), header);
     };
 
     // Create websocket server
