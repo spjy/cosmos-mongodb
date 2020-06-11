@@ -178,7 +178,7 @@ int main(int argc, char** argv)
 
     // Create REST API server
     HttpServer query;
-    query.config.port = 8083;
+    query.config.port = 8082;
 
     // Endpoint is /query/database/node:process, responds with query
     // Payload is { "options": {}, "multiple": bool, "query": {} }
