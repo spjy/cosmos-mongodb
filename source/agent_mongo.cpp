@@ -330,6 +330,10 @@ int main(int argc, char** argv)
 
             nodeproc_list << node_pieces;
 
+            if (node_pieces.empty()) {
+                nodeproc_list << "{}";
+            }
+
             incoming /= "incoming";
 
             nodeproc_list << ", \"agents\": [";
