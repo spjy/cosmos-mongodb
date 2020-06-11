@@ -180,6 +180,24 @@ int main(int argc, char** argv)
     HttpServer query;
     query.config.port = 8082;
 
+    query.default_resource["OPTIONS"] = [](std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request) {
+      try {
+
+          // Set header fields
+          SimpleWeb::CaseInsensitiveMultimap header;
+          header.emplace("Content-Type", "application/json");
+          header.emplace("Access-Control-Allow-Origin", "*");
+          header.emplace("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
+          header.emplace("Access-Control-Max-Age", "1728000");
+          header.emplace("Access-Control-Allow-Headers", "authorization,content-type");
+
+          response->write(SimpleWeb::StatusCode::success_ok, "", header);
+
+      } catch(const exception &e) {
+          response->write(SimpleWeb::StatusCode::client_error_bad_request, e.what());
+      }
+    };
+
     // Endpoint is /query/database/node:process, responds with query
     // Payload is { "options": {}, "multiple": bool, "query": {} }
     query.resource["^/query/(.+)/(.+)/?$"]["GET"] = [&connection_ring](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
