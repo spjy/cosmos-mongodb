@@ -392,15 +392,10 @@ int main(int argc, char** argv)
       ws_live.start();
     });
 
-    std::promise<unsigned short> server_port;
-    thread query_thread([&query, &server_port]() {
+    thread query_thread([&query]() {
         // Start server
-      query.start([&server_port](unsigned short port) {
-        server_port.set_value(port);
-      });
+      query.start();
     });
-
-    cout << "Query API running on port " << server_port.get_future().get() << endl;
 
     int32_t iretn;
     // Add agent request functions
