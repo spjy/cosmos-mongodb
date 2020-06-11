@@ -190,7 +190,7 @@ int main(int argc, char** argv)
 
     // Endpoint is /query/database/node:process, responds with query
     // Payload is { "options": {}, "multiple": bool, "query": {} }
-    query.resource["^/query/(.+)/(.+)/?$"]["GET"] = [&connection_ring, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+    query.resource["^/query/(.+)/(.+)/?$"]["POST"] = [&connection_ring, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         // Get http payload
         std::string message = request->content.string();
         std::string options = json_extract_namedmember(message, "options");
@@ -282,8 +282,8 @@ int main(int argc, char** argv)
         resp->write(response, header);
     };
 
-    // Query agent executable
-    query.resource["^/command$"]["GET"] = [&shell, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+    // Query agent executable { "command": "agent node proc help" }
+    query.resource["^/command$"]["POST"] = [&shell, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         std::string message = request->content.string();
         std::string command = json_extract_namedmember(message, "command");
 
