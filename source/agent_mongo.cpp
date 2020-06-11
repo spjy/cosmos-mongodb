@@ -236,15 +236,15 @@ int main(int argc, char** argv)
             } catch (const mongocxx::query_exception &err) {
                 cout << "WS Query: Logic error when querying occurred" << endl;
 
-                resp->write(SimpleWeb::StatusCode::client_error_bad_request, err.what());
+                resp->write(SimpleWeb::StatusCode::client_error_bad_request, err.what(), header);
             } catch (const mongocxx::logic_error &err) {
                 cout << "WS Query: Logic error when querying occurred" << endl;
 
-                resp->write(SimpleWeb::StatusCode::client_error_bad_request, err.what());
+                resp->write(SimpleWeb::StatusCode::client_error_bad_request, err.what(), header);
             } catch (const bsoncxx::exception &err) {
                 cout << "WS Query: Could not convert JSON" << endl;
 
-                resp->write(SimpleWeb::StatusCode::client_error_bad_request, err.what());
+                resp->write(SimpleWeb::StatusCode::client_error_bad_request, err.what(), header);
             }
         } else {
             stdx::optional<bsoncxx::document::value> document;
@@ -266,11 +266,11 @@ int main(int argc, char** argv)
             } catch (const mongocxx::query_exception &err) {
                 cout << "WS Query: Logic error when querying occurred" << endl;
 
-                resp->write(SimpleWeb::StatusCode::client_error_bad_request, err.what());
+                resp->write(SimpleWeb::StatusCode::client_error_bad_request, err.what(), header);
             } catch (const bsoncxx::exception &err) {
                 cout << "Could not convert JSON" << endl;
 
-                resp->write(SimpleWeb::StatusCode::client_error_bad_request, err.what());
+                resp->write(SimpleWeb::StatusCode::client_error_bad_request, err.what(), header);
             }
         }
 
