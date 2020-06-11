@@ -53,8 +53,6 @@ mongocxx::client connection_file;
 
 int main(int argc, char** argv)
 {
-    std::string agentname = "mongo";
-
     std::vector<std::string> included_nodes;
     std::vector<std::string> excluded_nodes;
     std::string nodes_path;
@@ -158,7 +156,7 @@ int main(int argc, char** argv)
     cout << "Agent path: " << agent_path << endl;
     cout << "Shell path: " << shell << endl;
 
-    agent = new Agent("", agentname, 1, AGENTMAXBUFFER, false, 20301, NetworkType::UDP, 1);
+    agent = new Agent("", "mongo");
 
     if (agent->cinfo == nullptr) {
         cout << "Unable to start agent_mongo" << endl;
