@@ -53,7 +53,6 @@ mongocxx::client connection_file;
 
 int main(int argc, char** argv)
 {
-    cout << "Agent Mongo" << endl;
     std::string agentname = "mongo";
 
     std::vector<std::string> included_nodes;
@@ -129,7 +128,7 @@ int main(int argc, char** argv)
                 for (bsoncxx::array::element e : excludesArray) {
                     excluded_nodes.push_back(bsoncxx::string::to_string(e.get_utf8().value));
                 }
-            } catch (bsoncxx::exception err) {
+            } catch (const bsoncxx::exception &err) {
                 cout << "WS Live: Error converting to BSON from JSON" << endl;
             }
         }
@@ -155,7 +154,7 @@ int main(int argc, char** argv)
 
     cout << endl << "MongoDB server: " << mongo_server << endl;
     cout << "Inserting into database: " << database << endl;
-    cout << "File Walk nodes folder: " << file_walk_path << endl;
+    cout << "File walk nodes folder: " << file_walk_path << endl;
     cout << "Agent path: " << agent_path << endl;
     cout << "Shell path: " << shell << endl;
 
@@ -179,13 +178,14 @@ int main(int argc, char** argv)
         }
     };
 
+    // Create REST API server
     HttpServer query;
     query.config.port = 8083;
 
-    // query, command, namespace (nodes, pieces)
-
     // Endpoint is /query/database/node:process, responds with query
+    // Payload is { "options": {}, "multiple": bool, "query": {} }
     query.resource["^/query/(.+)/(.+)/?$"]["GET"] = [&connection_ring](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+        // Get http payload
         std::string message = request->content.string();
         std::string options = json_extract_namedmember(message, "options");
         std::string multiple = json_extract_namedmember(message, "multiple");
@@ -197,12 +197,15 @@ int main(int argc, char** argv)
         std::string response;
         mongocxx::options::find mongo_options;
 
+        // Connect to db
         mongocxx::collection collection = connection_ring[request->path_match[1].str()][request->path_match[2].str()];
 
+        // Parse mongodb options
         if (!options.empty()) {
             set_mongo_options(mongo_options, options);
         }
 
+        // Check if user wants to query multiple documents or a single one
         if (multiple == "t") {
             try {
                 // Query the database based on the filter
@@ -216,27 +219,32 @@ int main(int argc, char** argv)
                         data.insert(data.size(), bsoncxx::to_json(document) + ",");
                     }
 
+                    // Rid of dangling comma
                     data.pop_back();
+
+                    // Return response in array
                     response = "[" + data + "]";
                 } else if (cursor.begin() == cursor.end() && response.empty()) {
                     response = "[]";
                 }
-            } catch (mongocxx::query_exception err) {
+            } catch (const mongocxx::query_exception &err) {
                 cout << "WS Query: Logic error when querying occurred" << endl;
 
                 resp->write(SimpleWeb::StatusCode::client_error_bad_request, err.what());
-            } catch (mongocxx::logic_error err) {
+            } catch (const mongocxx::logic_error &err) {
                 cout << "WS Query: Logic error when querying occurred" << endl;
 
                 resp->write(SimpleWeb::StatusCode::client_error_bad_request, err.what());
-            } catch (bsoncxx::exception err) {
+            } catch (const bsoncxx::exception &err) {
                 cout << "WS Query: Could not convert JSON" << endl;
 
                 resp->write(SimpleWeb::StatusCode::client_error_bad_request, err.what());
             }
         } else {
             stdx::optional<bsoncxx::document::value> document;
+
             try {
+                // Find single document
                 document = collection.find_one(bsoncxx::from_json(query), mongo_options);
 
                 // Check if document is empty, if so return an empty object
@@ -249,11 +257,11 @@ int main(int argc, char** argv)
                 } else if (!document && response.empty()) {
                     response = "{}";
                 }
-            } catch (mongocxx::query_exception err) {
+            } catch (const mongocxx::query_exception &err) {
                 cout << "WS Query: Logic error when querying occurred" << endl;
 
                 resp->write(SimpleWeb::StatusCode::client_error_bad_request, err.what());
-            } catch (bsoncxx::exception err) {
+            } catch (const bsoncxx::exception &err) {
                 cout << "Could not convert JSON" << endl;
 
                 resp->write(SimpleWeb::StatusCode::client_error_bad_request, err.what());
@@ -264,9 +272,11 @@ int main(int argc, char** argv)
             response = "[NOK]";
         }
 
+        // Return response
         resp->write(response);
     };
 
+    // Query agent executable
     query.resource["^/command$"]["GET"] = [&shell](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         std::string message = request->content.string();
         std::string command = json_extract_namedmember(message, "command");
@@ -276,6 +286,7 @@ int main(int argc, char** argv)
         resp->write(result);
     };
 
+    // Get namespace nodes
     query.resource["^/namespace/nodes$"]["GET"] = [&file_walk_path](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         fs::path nodes = file_walk_path;
         std::ostringstream nodes_list;
@@ -301,6 +312,7 @@ int main(int argc, char** argv)
         resp->write(nodes_list.str());
     };
 
+    // Get namespace nodes, processes and pieces
     query.resource["^/namespace/processes$"]["GET"] = [&file_walk_path](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         fs::path nodes = file_walk_path;
         std::ostringstream nodeproc_list;
@@ -314,6 +326,7 @@ int main(int argc, char** argv)
 
             fs::path incoming = node.path();
 
+            // Read pieces file
             fs::path pieces_file = node.path();
             pieces_file /= "pieces.ini";
 
@@ -330,10 +343,12 @@ int main(int argc, char** argv)
 
             nodeproc_list << node_pieces;
 
+            // If empty, return empty object
             if (node_pieces.empty()) {
                 nodeproc_list << "{}";
             }
 
+            // Read agents on node
             incoming /= "incoming";
 
             nodeproc_list << ", \"agents\": [";
@@ -364,6 +379,7 @@ int main(int argc, char** argv)
         resp->write(nodeproc_list.str());
     };
 
+    // Create websocket server
     WsServer ws_live;
     ws_live.config.port = 8081;
 
@@ -490,12 +506,12 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &database,
                             cout << "WS Live: Inserted adata into collection " << node_type << endl;
 
                             if (type != "exec") {
-				send_live("WS Live", node_type, adata);
+                                send_live("WS Live", node_type, adata);
                             }
-                        } catch (const mongocxx::bulk_write_exception err) {
+                        } catch (const mongocxx::bulk_write_exception &err) {
                             cout << "WS Live: Error writing to database." << endl;
                         }
-                    } catch (const bsoncxx::exception err) {
+                    } catch (const bsoncxx::exception &err) {
                         cout << "WS Live: Error converting to BSON from JSON" << endl;
                     }
                 }
@@ -505,6 +521,7 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &database,
     }
     return;
 }
+
 //! Walk through the directories created by agent_file and process the telemetry data in the incoming folder.
 //! \brief file_walk Loop through nodes, then through the incoming folder, then through each process, and finally through each telemetry file.
 //! Unzip the file, open it and go line by line and insert the entry into the database. Once done, move the processed file into the archive folder.
@@ -554,7 +571,7 @@ void file_walk(mongocxx::client &connection_file, std::string &database, std::ve
                                         try {
                                             fs::rename(telemetry, corrupt_file);
                                             cout << "File: Moved corrupt file to" << corrupt_file << endl;
-                                        } catch (std::error_code& error) {
+                                        } catch (const std::error_code &error) {
                                             cout << "File: Could not rename file " << error.message() << endl;
                                         }
 
@@ -597,11 +614,11 @@ void file_walk(mongocxx::client &connection_file, std::string &database, std::ve
                                                 {
                                                     document = collection.find_one(bsoncxx::from_json("{\"node_utc\":" + node_utc + "}"));
                                                 }
-                                                catch (mongocxx::query_exception err)
+                                                catch (const mongocxx::query_exception &err)
                                                 {
                                                     cout << "File: Logic error when querying occurred" << endl;
                                                 }
-                                                catch (bsoncxx::exception err)
+                                                catch (const bsoncxx::exception &err)
                                                 {
                                                     cout << "File: Could not convert JSON" << endl;
                                                 }
@@ -623,12 +640,12 @@ void file_walk(mongocxx::client &connection_file, std::string &database, std::ve
 
                                                             cout << "File: Inserted adata into collection " << node_type << endl;
                                                         }
-                                                        catch (const mongocxx::bulk_write_exception err)
+                                                        catch (const mongocxx::bulk_write_exception &err)
                                                         {
                                                             cout << "File: Error writing to database." << endl;
                                                         }
                                                     }
-                                                    catch (const bsoncxx::exception err)
+                                                    catch (const bsoncxx::exception &err)
                                                     {
                                                         cout << "File: Error converting to BSON from JSON" << endl;
                                                     }
@@ -656,12 +673,12 @@ void file_walk(mongocxx::client &connection_file, std::string &database, std::ve
 
                                                             cout << "File: Inserted adata into collection " << node_type << endl;
                                                         }
-                                                        catch (const mongocxx::bulk_write_exception err)
+                                                        catch (const mongocxx::bulk_write_exception &err)
                                                         {
                                                             cout << "File: Error writing to database." << endl;
                                                         }
                                                     }
-                                                    catch (const bsoncxx::exception err)
+                                                    catch (const bsoncxx::exception &err)
                                                     {
                                                         cout << "File: Error converting to BSON from JSON" << endl;
                                                     }
@@ -682,7 +699,7 @@ void file_walk(mongocxx::client &connection_file, std::string &database, std::ve
                                     fs::rename(telemetry, archive_file);
 
                                     cout << "File: Processed file " << telemetry.path() << endl;
-                                } catch (std::error_code& error) {
+                                } catch (const std::error_code &error) {
                                     cout << "File: Could not rename file " << error.message() << endl;
                                 }
                             }
@@ -738,7 +755,7 @@ void soh_walk(mongocxx::client &connection_file, std::string &database, std::vec
                             std::string node_type = node_path.back() + ":soh";
                             gzFile gzf = gzopen(telemetry.path().c_str(), "rb");
 
-			    cout << telemetry.path().c_str() << endl;
+                            cout << telemetry.path().c_str() << endl;
 
                             if (gzf == Z_NULL) {
                                 cout << "SOH: Error opening " << telemetry.path().c_str() << endl;
@@ -748,7 +765,7 @@ void soh_walk(mongocxx::client &connection_file, std::string &database, std::vec
                                 try {
                                     fs::rename(telemetry, corrupt_file);
                                     cout << "SOH: Moved corrupt file to" << corrupt_file << endl;
-                                } catch (std::error_code& error) {
+                                } catch (const std::error_code &error) {
                                     cout << "SOH: Could not rename file " << error.message() << endl;
                                 }
 
@@ -791,11 +808,11 @@ void soh_walk(mongocxx::client &connection_file, std::string &database, std::vec
                                         {
                                             document = collection.find_one(bsoncxx::builder::basic::make_document(kvp("node_utc", stod(node_utc))));
                                         }
-                                        catch (mongocxx::query_exception err)
+                                        catch (const mongocxx::query_exception &err)
                                         {
                                             cout << "SOH: Logic error when querying occurred" << endl;
                                         }
-                                        catch (bsoncxx::exception err)
+                                        catch (const bsoncxx::exception &err)
                                         {
                                             cout << "SOH: Could not convert JSON" << endl;
                                         }
@@ -803,10 +820,10 @@ void soh_walk(mongocxx::client &connection_file, std::string &database, std::vec
                                         // Append node_type for live values
                                         line.pop_back(); // Rid of \n newline char
 
-					// Rid of curly bracket if we pop the newline character
+                                        // Rid of curly bracket if we pop the newline character
                                         if (line.back() == '}') {
-					    line.pop_back();
-					}
+                                            line.pop_back();
+                                        }
 
                                         line.insert(line.size(), ", \"node_type\": \"" + node_type + "\"}");
 
@@ -825,16 +842,16 @@ void soh_walk(mongocxx::client &connection_file, std::string &database, std::vec
                                                     // Insert BSON object into collection specified
                                                     auto insert = collection.insert_one(value);
 
-					   	    send_live("SOH", node_type, line);
+                                                    send_live("SOH", node_type, line);
 
                                                     cout << "SOH: Inserted adata into collection " << node_type << endl;
                                                 }
-                                                catch (const mongocxx::bulk_write_exception err)
+                                                catch (const mongocxx::bulk_write_exception &err)
                                                 {
                                                     cout << "SOH: Error writing to database." << endl;
                                                 }
                                             }
-                                            catch (const bsoncxx::exception err)
+                                            catch (const bsoncxx::exception &err)
                                             {
                                                 cout << "SOH: Error converting to BSON from JSON" << endl;
                                             }
@@ -859,16 +876,16 @@ void soh_walk(mongocxx::client &connection_file, std::string &database, std::vec
                                                     // Insert BSON object into collection specified
                                                     auto insert = collection.insert_one(value);
 
-					   	    send_live("SOH", node_type, line);
+                                                    send_live("SOH", node_type, line);
 
                                                     cout << "SOH: Inserted adata into collection " << node_type << endl;
                                                 }
-                                                catch (const mongocxx::bulk_write_exception err)
+                                                catch (const mongocxx::bulk_write_exception &err)
                                                 {
                                                     cout << "SOH: Error writing to database." << endl;
                                                 }
                                             }
-                                            catch (const bsoncxx::exception err)
+                                            catch (const bsoncxx::exception &err)
                                             {
                                                 cout << "SOH: Error converting to BSON from JSON" << endl;
                                             }
@@ -877,10 +894,10 @@ void soh_walk(mongocxx::client &connection_file, std::string &database, std::vec
 
                                     }
                                 }
-				else
-				{
-				    break;
-				}
+                                else
+                                {
+                                    break;
+                                }
                             }
 
                             gzclose(gzf);
@@ -893,7 +910,7 @@ void soh_walk(mongocxx::client &connection_file, std::string &database, std::vec
                             fs::rename(telemetry, archive_file);
 
                             cout << "SOH: Processed file " << telemetry.path() << endl;
-                        } catch (std::error_code& error) {
+                        } catch (const std::error_code &error) {
                             cout << "SOH: Could not rename file " << error.message() << endl;
                         }
                     }
@@ -1007,7 +1024,7 @@ void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<s
                 previousSortedAgents = sortedAgents;
             }
         }
-        catch (bsoncxx::exception err)
+        catch (const bsoncxx::exception &err)
         {
             cout << "WS Agent Live: Error converting to BSON from JSON" << endl;
         }
@@ -1047,13 +1064,13 @@ int32_t request_insert(char* request, char* response, Agent* agent) {
             cout << "Request: Inserted adata into collection " << col << endl;
             sprintf(response,"Inserted adata into collection %s" ,col.c_str());
         }
-        catch (const mongocxx::bulk_write_exception err)
+        catch (const mongocxx::bulk_write_exception &err)
         {
             cout << "Request: Error writing to database." << endl;
             sprintf(response,"Error writing to database.");
         }
     }
-    catch (const bsoncxx::exception err)
+    catch (const bsoncxx::exception &err)
     {
         cout << "Request: Error converting to BSON from JSON ("<<entry<<")" << endl;
         sprintf(response,"Error converting to BSON from JSON.");
