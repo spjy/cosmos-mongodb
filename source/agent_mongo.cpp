@@ -332,12 +332,11 @@ int main(int argc, char** argv)
 
             incoming /= "incoming";
 
+            nodeproc_list << ", \"agents\": [";
+
             // Loop through the incoming folder
             if (is_directory(incoming)) {
                 // Loop through the processes folder
-
-                nodeproc_list << ", \"agents\": [";
-
                 for (auto& process: fs::directory_iterator(incoming)) {
                     vector<std::string> process_path = string_split(process.path().string(), "/");
 
@@ -346,9 +345,9 @@ int main(int argc, char** argv)
 
                 // Remove dangling comma
                 nodeproc_list.seekp(-1, std::ios_base::end);
-
-                nodeproc_list << "]},";
             }
+
+            nodeproc_list << "]},";
         }
 
         // Remove dangling comma
