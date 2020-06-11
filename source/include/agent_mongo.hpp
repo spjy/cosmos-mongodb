@@ -58,8 +58,6 @@
 using WsServer = SimpleWeb::SocketServer<SimpleWeb::WS>;
 using WsClient = SimpleWeb::SocketClient<SimpleWeb::WS>;
 
-using WsServer = SimpleWeb::SocketServer<SimpleWeb::WS>;
-using WsClient = SimpleWeb::SocketClient<SimpleWeb::WS>;
 using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
 
 using namespace bsoncxx;
