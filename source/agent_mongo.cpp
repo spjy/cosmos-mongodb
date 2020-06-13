@@ -186,18 +186,27 @@ int main(int argc, char** argv)
     header.emplace("Access-Control-Allow-Origin", "*");
     header.emplace("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
     header.emplace("Access-Control-Max-Age", "1728000");
-    header.emplace("Access-Control-Allow-Headers", "authorization,content-type");
+    header.emplace("Access-Control-Allow-Headers", "*");
+
+    query.default_resource["OPTIONS"] = [&header](std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request) {
+      try {
+          response->write(SimpleWeb::StatusCode::success_ok, "", header);
+
+      }
+      catch(const exception &e) {
+          response->write(SimpleWeb::StatusCode::client_error_bad_request, e.what());
+      }
+    };
 
     // Endpoint is /query/database/node:process, responds with query
     // Payload is { "options": {}, "multiple": bool, "query": {} }
     query.resource["^/query/(.+)/(.+)/?$"]["POST"] = [&connection_ring, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         // Get http payload
-        std::string message = request->content.string();
+        auto message = request->content.string();
+        cout << "Query: Received request: " << request->content.string() << endl;
         std::string options = json_extract_namedmember(message, "options");
         std::string multiple = json_extract_namedmember(message, "multiple");
         std::string query = json_extract_namedmember(message, "query");
-
-        cout << "Query: Received request: " << message << endl;
 
         bsoncxx::builder::stream::document document {};
         std::string response;
@@ -275,7 +284,7 @@ int main(int argc, char** argv)
         }
 
         if (response.empty()) {
-            response = "[NOK]";
+            response = "{ \"error\": \"Empty response.\" }";
         }
 
         // Return response
