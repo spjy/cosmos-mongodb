@@ -487,9 +487,6 @@ int main(int argc, char** argv)
                 cout << "WS Live: Error converting to BSON from JSON" << endl;
             }
 
-
-//            nodeproc_list << node_pieces;
-
             // Read namespace values
             cosmosstruc *struc = json_init();
             int32_t s = json_setup_node(node_directory, struc);
@@ -524,7 +521,6 @@ int main(int argc, char** argv)
                             cout << value.substr(value.find_last_of('_') + 1) << endl;
                             try {
                                 int cidx = stoi(value.substr(value.find_last_of('_') + 1));
-                                 cout << cidx << value << endl;
 
                                 if (indexed.find(cidx) != indexed.end()) {
                                     indexed[cidx].push_back(value);
@@ -535,9 +531,6 @@ int main(int argc, char** argv)
                             } catch (const std::invalid_argument &err) {
                                 cout << "error" << endl;
                             }
-
-
-//                            nodeproc_list << "\"" << value << "\",";
                         }
                     }
 
@@ -555,12 +548,12 @@ int main(int argc, char** argv)
                     }
 
                     // Remove dangling comma
-                    nodeproc_list.seekp(-1, std::ios_base::end);
+                    if (!indexed.empty()) {
+                        nodeproc_list.seekp(-1, std::ios_base::end);
+                    }
                 } catch (const bsoncxx::exception &err) {
                     cout << "WS Live: Error converting to BSON from JSON" << endl;
                 }
-            } else {
-                nodeproc_list << "[]";
             }
 
             // Read agents on node
