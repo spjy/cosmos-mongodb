@@ -113,11 +113,18 @@ enum class MongoFindOption
     INVALID
 };
 
+std::string get_directory(const std::string path);
 map<std::string, std::string> get_keys(const std::string &request, const std::string variable_delimiter, const std::string value_delimiter);
 void str_to_lowercase(std::string &input);
 MongoFindOption option_table(std::string input);
 void set_mongo_options(mongocxx::options::find &options, std::string request);
 void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &agent_path, std::string &shell);
+
+std::string get_directory(std::string path) {
+    std::size_t directory = path.find_last_of("/\\");
+
+    return path.substr(directory + 1);
+}
 
 /*! Run a command line script and get the output of it.
  * \brief execute Use popen to run a command line script and get the output of the command.

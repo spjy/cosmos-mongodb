@@ -43,7 +43,7 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &database,
 void file_walk(mongocxx::client &connection_file, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
 void soh_walk(mongocxx::client &connection_file, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
 int32_t request_insert(char* request, char* response, Agent* agent);
-
+int32_t request_cinfo(char* request, char* response, Agent* agent);
 
 static thread collect_data_thread;
 static thread file_walk_thread;
@@ -439,6 +439,161 @@ int main(int argc, char** argv)
         resp->write(nodeproc_list.str(), header);
     };
 
+    // Get namespace nodes, processes and pieces
+    query.resource["^/namespace/all$"]["GET"] = [&file_walk_path, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+        fs::path nodes = file_walk_path;
+        std::ostringstream nodeproc_list;
+
+        // Array bracket
+        nodeproc_list << "{";
+
+        // Iterate through nodes folder
+        for (auto& node: fs::directory_iterator(nodes)) {
+            std::string node_directory = get_directory(node.path().string());
+            fs::path incoming = node.path();
+
+            // Read pieces file
+            fs::path pieces_file = node.path();
+            pieces_file /= "pieces.ini";
+
+            nodeproc_list << "\"" + node_directory + "\": { \"pieces\":{";
+
+            ifstream pieces;
+            std::string node_pieces;
+
+            pieces.open(pieces_file.c_str(), std::ifstream::in);
+
+            while (true) {
+                if (!(pieces >> node_pieces)) break;
+            }
+
+            try {
+                bsoncxx::document::value json = bsoncxx::from_json(node_pieces);
+                bsoncxx::document::view opt { json.view() };
+
+                // coerce into format "piece_name_000": piece_cidx_000
+                for (auto e : opt) {
+                    std::string key = e.key().to_string();
+                    if (key.rfind("piece_name_") == 0) {
+                        std::vector<std::string> split = string_split(key, "_");
+
+                        nodeproc_list << "\"" << bsoncxx::string::to_string(e.get_utf8().value) << "\":" << json_extract_namedmember(node_pieces, "piece_cidx_" + split[2]) << ",";
+                    }
+                }
+
+                // Remove dangling comma
+                nodeproc_list.seekp(-1, std::ios_base::end);
+            } catch (const bsoncxx::exception &err) {
+                cout << "WS Live: Error converting to BSON from JSON" << endl;
+            }
+
+
+//            nodeproc_list << node_pieces;
+
+            // Read namespace values
+            cosmosstruc *struc = json_init();
+            int32_t s = json_setup_node(node_directory, struc);
+
+            nodeproc_list << "}, \"values\":{";
+
+            if (s >= 0) {
+                std::string listvalues = json_list_of_all(struc);
+
+                listvalues.erase(0, 1);
+                listvalues.pop_back();
+
+                std::string buffer = "{\"values\": [" + listvalues + "]}";
+
+                try {
+                    bsoncxx::document::value json = bsoncxx::from_json(buffer);
+                    bsoncxx::document::view opt { json.view() };
+
+                    bsoncxx::document::element values {
+                        opt["values"]
+                    };
+
+                    bsoncxx::array::view valuesArray {values.get_array().value};
+
+                    std::map<int, vector<std::string>> indexed;
+
+                    for (bsoncxx::array::element e : valuesArray) {
+                        std::string value = bsoncxx::string::to_string(e.get_utf8().value);
+
+                        // Check if it starts with device, exclude device_all
+                        if (value.rfind("device_", 0) == 0 && value.rfind("device_all") != 0) {
+                            cout << value.substr(value.find_last_of('_') + 1) << endl;
+                            try {
+                                int cidx = stoi(value.substr(value.find_last_of('_') + 1));
+                                 cout << cidx << value << endl;
+
+                                if (indexed.find(cidx) != indexed.end()) {
+                                    indexed[cidx].push_back(value);
+                                } else {
+                                    vector<std::string> v = {value};
+                                    indexed.insert(std::pair<int, vector<std::string>>(cidx, v));
+                                }
+                            } catch (const std::invalid_argument &err) {
+                                cout << "error" << endl;
+                            }
+
+
+//                            nodeproc_list << "\"" << value << "\",";
+                        }
+                    }
+
+                    for (std::map<int, vector<std::string>>::iterator it = indexed.begin(); it != indexed.end(); ++it) {
+                        nodeproc_list << "\"" << it->first << "\":[";
+
+                        for (vector<std::string>::iterator itv = it->second.begin(); itv != it->second.end(); ++itv) {
+                            nodeproc_list << "\"" << *itv << "\",";
+                        }
+
+                        // Remove dangling comma
+                        nodeproc_list.seekp(-1, std::ios_base::end);
+
+                        nodeproc_list << "],";
+                    }
+
+                    // Remove dangling comma
+                    nodeproc_list.seekp(-1, std::ios_base::end);
+                } catch (const bsoncxx::exception &err) {
+                    cout << "WS Live: Error converting to BSON from JSON" << endl;
+                }
+            } else {
+                nodeproc_list << "[]";
+            }
+
+            // Read agents on node
+            incoming /= "incoming";
+
+            nodeproc_list << "}, \"agents\": [";
+
+            // Loop through the incoming folder
+            if (is_directory(incoming)) {
+                // Loop through the processes folder
+                for (auto& process: fs::directory_iterator(incoming)) {
+                    vector<std::string> process_path = string_split(process.path().string(), "/");
+
+                    nodeproc_list << "\"" + process_path.back() + "\",";
+                }
+
+                // Remove dangling comma
+                nodeproc_list.seekp(-1, std::ios_base::end);
+            }
+
+            nodeproc_list << "]},";
+        }
+
+        // Remove dangling comma
+        nodeproc_list.seekp(-1, std::ios_base::end);
+
+        // End array
+        nodeproc_list << "}";
+
+        // Send response
+        resp->write(nodeproc_list.str(), header);
+    };
+
     // Create websocket server
     WsServer ws_live;
     ws_live.config.port = 8081;
@@ -479,6 +634,9 @@ int main(int argc, char** argv)
     int32_t iretn;
     // Add agent request functions
     if ((iretn=agent->add_request("insert", request_insert, "db collection entry_json", "inserts entry_json to collection in db")))
+        exit (iretn);
+
+    if ((iretn=agent->add_request("cinfo", request_cinfo, "cinfo", "get cinfo info")))
         exit (iretn);
 
     // Create a thread for the data collection and service requests.
@@ -1135,5 +1293,29 @@ int32_t request_insert(char* request, char* response, Agent* agent) {
         cout << "Request: Error converting to BSON from JSON ("<<entry<<")" << endl;
         sprintf(response,"Error converting to BSON from JSON.");
     }
+    return 0;
+}
+
+int32_t request_cinfo(char* request, char* response, Agent* agent) {
+    //std::string soh_string = "{\"device_ssen_utc_000\":0,\"device_ssen_temp_000\":300,\"device_ssen_azimuth_000\":0,\"device_ssen_elevation_000\":0,\"device_ssen_qva_000\":0,\"device_ssen_qvb_000\":0,\"device_ssen_qvc_000\":0,\"device_ssen_qvd_000\":0,\"device_imu_utc_000\":0,\"device_imu_temp_000\":300,\"device_imu_accel_000\":[0,0,0],\"device_imu_omega_000\":[0,0,0],\"device_imu_alpha_000\":[0,0,0],\"device_imu_mag_000\":[0,0,0],\"device_imu_bdot_000\":[0,0,0],\"device_rw_utc_000\":0,\"device_rw_temp_000\":300,\"device_rw_omg_000\":0,\"device_rw_alp_000\":0,\"device_rw_utc_001\":0,\"device_rw_temp_001\":300,\"device_rw_omg_001\":0,\"device_rw_alp_001\":0,\"device_rw_utc_002\":0,\"device_rw_temp_002\":300,\"device_rw_omg_002\":0,\"device_rw_alp_002\":0,\"device_mtr_utc_000\":0,\"device_mtr_temp_000\":300,\"device_mtr_mom_000\":0,\"device_mtr_utc_001\":0,\"device_mtr_temp_001\":300,\"device_mtr_mom_001\":0,\"device_mtr_utc_002\":0,\"device_mtr_temp_002\":300,\"device_mtr_mom_002\":0,\"device_cpu_utc_000\":0,\"device_cpu_temp_000\":300,\"device_cpu_gib_000\":0,\"device_cpu_load_000\":0,\"device_cpu_boot_count_000\":0,\"device_cpu_utc_001\":0,\"device_cpu_temp_001\":300,\"device_cpu_gib_001\":0,\"device_cpu_load_001\":0,\"device_cpu_boot_count_001\":0,\"device_cpu_utc_002\":0,\"device_cpu_temp_002\":300,\"device_cpu_gib_002\":0,\"device_cpu_load_002\":0,\"device_cpu_boot_count_002\":0,\"device_pvstrg_utc_000\":0,\"device_pvstrg_temp_000\":300,\"device_pvstrg_power_000\":0,\"device_pvstrg_utc_001\":0,\"device_pvstrg_temp_001\":300,\"device_pvstrg_power_001\":0,\"device_pvstrg_utc_002\":0,\"device_pvstrg_temp_002\":300,\"device_pvstrg_power_002\":0,\"device_pvstrg_utc_003\":0,\"device_pvstrg_temp_003\":300,\"device_pvstrg_power_003\":0,\"device_batt_utc_000\":0,\"device_batt_temp_000\":300,\"device_batt_amp_000\":0,\"device_batt_volt_000\":7.5999999,\"device_batt_power_000\":0,\"device_batt_charge_000\":1.3,\"device_batt_percentage_000\":0,\"device_batt_time_remaining_000\":0,\"device_tsen_utc_000\":0,\"device_tsen_temp_000\":300,\"device_tsen_utc_001\":0,\"device_tsen_temp_001\":300,\"device_tsen_utc_002\":0,\"device_tsen_temp_002\":300,\"device_tsen_utc_003\":0,\"device_tsen_temp_003\":300,\"device_swch_utc_000\":0,\"device_swch_temp_000\":300,\"device_swch_utc_001\":0,\"device_swch_temp_001\":300,\"device_swch_utc_002\":0,\"device_swch_temp_002\":300,\"device_swch_utc_003\":0,\"device_swch_temp_003\":300,\"device_swch_utc_004\":0,\"device_swch_temp_004\":300,\"device_swch_utc_005\":0,\"device_swch_temp_005\":300,\"device_swch_utc_006\":0,\"device_swch_temp_006\":300,\"device_swch_utc_007\":0,\"device_swch_temp_007\":300,\"device_swch_utc_008\":0,\"device_swch_temp_008\":300,\"device_swch_utc_009\":0,\"device_swch_temp_009\":300,\"device_stt_utc_000\":0,\"device_stt_temp_000\":300,\"device_stt_att_000\":{\"d\":{\"x\":0,\"y\":0,\"z\":0},\"w\":0},\"device_stt_omega_000\":[0,0,0],\"device_bus_utc_000\":0,\"device_bus_temp_000\":300,\"device_bus_utc_000\":0,\"device_bus_energy_000\":0,\"device_bus_amp_000\":0,\"device_bus_volt_000\":12,\"device_bus_power_000\":0,\"device_bus_utc_001\":0,\"device_bus_temp_001\":300,\"device_bus_utc_001\":0,\"device_bus_energy_001\":0,\"device_bus_amp_001\":0,\"device_bus_volt_001\":5,\"device_bus_power_001\":0,\"device_bus_utc_002\":0,\"device_bus_temp_002\":300,\"device_bus_utc_002\":0,\"device_bus_energy_002\":0,\"device_bus_amp_002\":0,\"device_bus_volt_002\":3.3,\"device_bus_power_002\":0,\"device_bus_utc_003\":0,\"device_bus_temp_003\":300,\"device_bus_utc_003\":0,\"device_bus_energy_003\":0,\"device_bus_amp_003\":0,\"device_bus_volt_003\":8.3000002,\"device_bus_power_003\":0}";
+    std::string soh_string = "{\"node_utc\":59016.081388850464,\"node_name\":\"spencer\",\"node_type\":9,\"node_state\":0,\"node_powgen\":0,\"node_powuse\":0,\"node_powchg\":0,\"node_battlev\":0,\"node_loc_bearth\":[0,0,0],\"node_loc_pos_eci\":{\"utc\":0,\"pos\":[0,0,0],\"vel\":[0,0,0],\"acc\":[0,0,0]},\"node_loc_att_icrf\":{\"utc\":0,\"pos\":{\"d\":{\"x\":0,\"y\":0,\"z\":0},\"w\":0},\"vel\":[0,0,0],\"acc\":[0,0,0]},\"device_cpu_utc_000\":0,\"device_cpu_temp_000\":122,\"device_cpu_gib_000\":15.498859,\"device_cpu_load_000\":1.7,\"device_cpu_boot_count_000\":4,\"device_disk_utc_000\":59000,\"device_disk_temp_000\":142,\"device_disk_gib_000\":0,\"device_disk_path_000\":\"C:\",\"device_disk_utc_001\":0,\"device_disk_temp_001\":65,\"device_disk_gib_001\":25,\"device_disk_path_001\":\"\",\"device_disk_utc_002\":0,\"device_disk_temp_002\":26,\"device_disk_gib_002\":0,\"device_disk_path_002\":\"\",\"device_disk_utc_003\":0,\"device_disk_temp_003\":300,\"device_disk_gib_003\":0,\"device_disk_path_003\":\"\",\"device_disk_utc_004\":0,\"device_disk_temp_004\":300,\"device_disk_gib_004\":0,\"device_disk_path_004\":\"\",\"device_disk_utc_005\":0,\"device_disk_temp_005\":300,\"device_disk_gib_005\":0,\"device_disk_path_005\":\"\",\"device_disk_utc_006\":0,\"device_disk_temp_006\":300,\"device_disk_gib_006\":0,\"device_disk_path_006\":\"\",\"device_disk_utc_007\":0,\"device_disk_temp_007\":300,\"device_disk_gib_007\":0,\"device_disk_path_007\":\"\",\"device_disk_utc_008\":0,\"device_disk_temp_008\":300,\"device_disk_gib_008\":0,\"device_disk_path_008\":\"\",\"device_disk_utc_009\":0,\"device_disk_temp_009\":300,\"device_disk_gib_009\":0,\"device_disk_path_009\":\"\",\"device_disk_utc_010\":0,\"device_disk_temp_010\":300,\"device_disk_gib_010\":0,\"device_disk_path_010\":\"\",\"device_disk_utc_011\":0,\"device_disk_temp_011\":300,\"device_disk_gib_011\":0,\"device_disk_path_011\":\"\",\"device_disk_utc_012\":0,\"device_disk_temp_012\":300,\"device_disk_gib_012\":0,\"device_disk_path_012\":\"\",\"device_disk_utc_013\":0,\"device_disk_temp_013\":300,\"device_disk_gib_013\":0,\"device_disk_path_013\":\"\",\"device_disk_utc_014\":0,\"device_disk_temp_014\":300,\"device_disk_gib_014\":0,\"device_disk_path_014\":\"\",\"device_disk_utc_015\":0,\"device_disk_temp_015\":300,\"device_disk_gib_015\":0,\"device_disk_path_015\":\"\",\"device_disk_utc_016\":0,\"device_disk_temp_016\":300,\"device_disk_gib_016\":0,\"device_disk_path_016\":\"\",\"device_disk_utc_017\":0,\"device_disk_temp_017\":300,\"device_disk_gib_017\":0,\"device_disk_path_017\":\"\",\"device_disk_utc_018\":0,\"device_disk_temp_018\":300,\"device_disk_gib_018\":0,\"device_disk_path_018\":\"\",\"device_disk_utc_019\":0,\"device_disk_temp_019\":300,\"device_disk_gib_019\":0,\"device_disk_path_019\":\"\",\"device_disk_utc_020\":0,\"device_disk_temp_020\":300,\"device_disk_gib_020\":0,\"device_disk_path_020\":\"\",\"device_disk_utc_021\":0,\"device_disk_temp_021\":300,\"device_disk_gib_021\":0,\"device_disk_path_021\":\"\",\"device_disk_utc_022\":0,\"device_disk_temp_022\":300,\"device_disk_gib_022\":0,\"device_disk_path_022\":\"\",\"device_disk_utc_023\":0,\"device_disk_temp_023\":300,\"device_disk_gib_023\":0,\"device_disk_path_023\":\"\",\"device_disk_utc_024\":0,\"device_disk_temp_024\":300,\"device_disk_gib_024\":0,\"device_disk_path_024\":\"\",\"device_disk_utc_025\":0,\"device_disk_temp_025\":300,\"device_disk_gib_025\":0,\"device_disk_path_025\":\"\",\"device_disk_utc_026\":0,\"device_disk_temp_026\":300,\"device_disk_gib_026\":0,\"device_disk_path_026\":\"\",\"device_disk_utc_027\":0,\"device_disk_temp_027\":300,\"device_disk_gib_027\":0,\"device_disk_path_027\":\"\",\"device_disk_utc_028\":0,\"device_disk_temp_028\":300,\"device_disk_gib_028\":0,\"device_disk_path_028\":\"\",\"device_disk_utc_029\":0,\"device_disk_temp_029\":300,\"device_disk_gib_029\":0,\"device_disk_path_029\":\"\",\"device_disk_utc_030\":0,\"device_disk_temp_030\":300,\"device_disk_gib_030\":0,\"device_disk_path_030\":\"\",\"device_disk_utc_031\":0,\"device_disk_temp_031\":300,\"device_disk_gib_031\":0,\"device_disk_path_031\":\"\",\"device_disk_utc_032\":0,\"device_disk_temp_032\":300,\"device_disk_gib_032\":0,\"device_disk_path_032\":\"\",\"device_disk_utc_033\":0,\"device_disk_temp_033\":300,\"device_disk_gib_033\":0,\"device_disk_path_033\":\"\",\"device_disk_utc_034\":0,\"device_disk_temp_034\":300,\"device_disk_gib_034\":0,\"device_disk_path_034\":\"\",\"device_disk_utc_035\":0,\"device_disk_temp_035\":300,\"device_disk_gib_035\":0,\"device_disk_path_035\":\"\",\"device_disk_utc_036\":0,\"device_disk_temp_036\":300,\"device_disk_gib_036\":0,\"device_disk_path_036\":\"\",\"device_disk_utc_037\":0,\"device_disk_temp_037\":300,\"device_disk_gib_037\":0,\"device_disk_path_037\":\"\",\"device_disk_utc_038\":0,\"device_disk_temp_038\":300,\"device_disk_gib_038\":0,\"device_disk_path_038\":\"\",\"device_disk_utc_039\":0,\"device_disk_temp_039\":300,\"device_disk_gib_039\":0,\"device_disk_path_039\":\"\",\"device_disk_utc_040\":0,\"device_disk_temp_040\":300,\"device_disk_gib_040\":0,\"device_disk_path_040\":\"\",\"device_disk_utc_041\":0,\"device_disk_temp_041\":300,\"device_disk_gib_041\":0,\"device_disk_path_041\":\"\",\"device_disk_utc_042\":0,\"device_disk_temp_042\":300,\"device_disk_gib_042\":0,\"device_disk_path_042\":\"\",\"device_disk_utc_043\":0,\"device_disk_temp_043\":300,\"device_disk_gib_043\":0,\"device_disk_path_043\":\"\",\"device_disk_utc_044\":0,\"device_disk_temp_044\":300,\"device_disk_gib_044\":0,\"device_disk_path_044\":\"\",\"device_disk_utc_045\":0,\"device_disk_temp_045\":300,\"device_disk_gib_045\":0,\"device_disk_path_045\":\"\",\"device_disk_utc_046\":0,\"device_disk_temp_046\":300,\"device_disk_gib_046\":0,\"device_disk_path_046\":\"\",\"device_disk_utc_047\":0,\"device_disk_temp_047\":300,\"device_disk_gib_047\":0,\"device_disk_path_047\":\"\",\"device_disk_utc_048\":0,\"device_disk_temp_048\":300,\"device_disk_gib_048\":0,\"device_disk_path_048\":\"\",\"device_disk_utc_049\":0,\"device_disk_temp_049\":300,\"device_disk_gib_049\":0,\"device_disk_path_049\":\"\",\"device_disk_utc_050\":0,\"device_disk_temp_050\":300,\"device_disk_gib_050\":0,\"device_disk_path_050\":\"\",\"device_disk_utc_051\":0,\"device_disk_temp_051\":300,\"device_disk_gib_051\":0,\"device_disk_path_051\":\"\",\"device_disk_utc_052\":0,\"device_disk_temp_052\":300,\"device_disk_gib_052\":0,\"device_disk_path_052\":\"\"}";
+    cosmosstruc *struc = json_init();
+    //std::string soh_string = "{\"device_cpu_utc_000\":59015.993214190625,\"device_cpu_maxgib_000\":22.603275,\"device_cpu_gib_000\":11.20945,\"memory_utilization_000\":0.4959214812787105,\"cpu_utilization_000\":1.809999942779541}";
+
+    std::string node = "spencer";
+    int32_t s = json_setup_node(node, struc);
+    int32_t r = json_parse(soh_string, struc);
+
+    cout << json_list_of_all(struc);
+
+    auto val = struc->device[0].cpu.load;
+
+    cout << val << endl;
+
+    sprintf(response, "ok");
+//pieces (50) -> click on another list, gives you name
+//        device_cpu_000_...
+//        cpu type, know idx 000, assembled names
+
     return 0;
 }
