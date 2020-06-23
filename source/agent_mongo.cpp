@@ -487,7 +487,9 @@ int main(int argc, char** argv)
                 }
 
                 // Remove dangling comma
-                nodeproc_list.seekp(-1, std::ios_base::end);
+                if (num_pieces > 0) {
+                    nodeproc_list.seekp(-1, std::ios_base::end);
+                }
             } catch (const bsoncxx::exception &err) {
                 cout << "WS Live: Error converting to BSON from JSON" << endl;
             }
@@ -575,11 +577,6 @@ int main(int argc, char** argv)
 
                     // Remove dangling comma
                     if (num_pieces > 0) {
-                        nodeproc_list.seekp(-1, std::ios_base::end);
-                    }
-
-                    // Remove dangling comma
-                    if (!indexed.empty()) {
                         nodeproc_list.seekp(-1, std::ios_base::end);
                     }
                 } catch (const bsoncxx::exception &err) {
