@@ -293,6 +293,8 @@ int main(int argc, char** argv)
 
     // Query agent executable { "command": "agent node proc help" }
     query.resource["^/command$"]["POST"] = [&shell, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+        header.emplace("Content-Type", "text/plain");
+
         std::string message = request->content.string();
         std::string command = json_extract_namedmember(message, "command");
 
@@ -514,7 +516,8 @@ int main(int argc, char** argv)
 
                     bsoncxx::array::view valuesArray {values.get_array().value};
 
-                    std::map<int, std::string> indexed;
+                    // didx: { type: [] }
+                    std::map<int, std::map<std::string, std::string>> indexed;
 
                     // organize devices into array according to didx
                     for (bsoncxx::array::element e : valuesArray) {
@@ -524,24 +527,35 @@ int main(int argc, char** argv)
                         if (value.rfind("device_", 0) == 0 && value.rfind("device_all") != 0) {
                             try {
                                 int didx = stoi(value.substr(value.find_last_of('_') + 1));
+                                std::string type = string_split(value, "_")[1]; // get device type
 
                                 // if empty
                                 if (indexed.find(didx) == indexed.end()) {
-                                    indexed.emplace(didx, "[\"" + value + "\",");
+                                    std::map<std::string, std::string> dtype;
+                                    dtype.emplace(type, "[\"" + value + "\",");
+
+                                    indexed.emplace(didx, dtype);
                                 } else {
-                                    // if not empty
-                                    indexed[didx].insert(indexed[didx].size(), "\"" + value + "\",");
+                                    // if not empty, insert into didx:type string
+                                    if (indexed[didx].find(type) == indexed[didx].end()) {
+                                        indexed[didx].emplace(type, "[\"" + value + "\",");
+                                    } else {
+                                        indexed[didx][type].insert(indexed[didx][type].size(), "\"" + value + "\",");
+                                    }
                                 }
                             } catch (const std::invalid_argument &err) {
-                                cout << err.what() << endl;
+//                                cout << err.what() << endl;
                             }
                         }
                     }
 
                     // Remove dangling comma and add ending array bracket to each device array
-                    for (std::map<int, std::string>::iterator it = indexed.begin(); it != indexed.end(); ++it) {
-                        it->second.pop_back();
-                        it->second.insert(it->second.size(), "]");
+
+                    for (std::map<int, std::map<std::string, std::string>>::iterator it = indexed.begin(); it != indexed.end(); ++it) {
+                        for (std::map<std::string, std::string>::iterator it_type = it->second.begin(); it_type != it->second.end(); ++it_type) {
+                            it_type->second.pop_back();
+                            it_type->second.insert(it_type->second.size(), "]");
+                        }
                     }
 
                     // loop through devices, add
@@ -549,10 +563,11 @@ int main(int argc, char** argv)
                         nodeproc_list << "\"" << i << "\":";
 
                         int didx = struc->device[i].all.didx;
+                        std::string type = device_type[struc->device[i].all.type];
 
                         // If exists
-                        if (indexed.find(didx) != indexed.end()) {
-                            nodeproc_list << indexed[didx] << ",";
+                        if (indexed.find(didx) != indexed.end() && indexed[didx].find(type) != indexed[didx].end()) {
+                            nodeproc_list << indexed[didx][type] << ",";
                         } else {
                             nodeproc_list << "[],";
                         }
@@ -1163,7 +1178,7 @@ void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<s
         std::set<std::pair<std::string, std::string>> sortedAgents;
         std::string list;
 
-        list = execute(agent_path + " list_json", shell);
+        list = execute("\"" + agent_path + " list_json\"", shell);
 
         WsClient client("localhost:8081/live/list");
 

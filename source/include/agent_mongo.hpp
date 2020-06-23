@@ -113,6 +113,8 @@ enum class MongoFindOption
     INVALID
 };
 
+const std::string device_type[] = {"pload", "ssen", "imu", "rw", "mtr", "cpu", "gps", "ant", "rxr", "txr", "tcv", "pvstrg", "batt", "htr", "motr", "tsen", "thst", "prop", "swch", "rot", "stt", "mcc", "tcu", "bus", "psen", "suchi", "cam", "telem", "disk", "tnc", "bcreg"};
+
 std::string get_directory(const std::string path);
 map<std::string, std::string> get_keys(const std::string &request, const std::string variable_delimiter, const std::string value_delimiter);
 void str_to_lowercase(std::string &input);
@@ -137,8 +139,7 @@ std::string execute(std::string cmd, std::string shell) {
         FILE * stream;
         const int max_buffer = 256;
         char buffer[max_buffer];
-        cmd.insert(0, shell + " -c '");
-        cmd.append("'");
+        cmd.insert(0, shell + " -c ");
         cmd.append(" 2>&1");
 
         stream = popen(cmd.c_str(), "r");
@@ -150,6 +151,7 @@ std::string execute(std::string cmd, std::string shell) {
             }
             pclose(stream);
         }
+
         return data;
     } catch (...) {
         return std::string();
