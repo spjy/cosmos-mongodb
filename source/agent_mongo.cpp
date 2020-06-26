@@ -994,8 +994,6 @@ void soh_walk(mongocxx::client &connection_file, std::string &database, std::vec
                             std::string node_type = node_path.back() + ":soh";
                             gzFile gzf = gzopen(telemetry.path().c_str(), "rb");
 
-                            cout << telemetry.path().c_str() << endl;
-
                             if (gzf == Z_NULL) {
                                 cout << "SOH: Error opening " << telemetry.path().c_str() << endl;
                                 // Move the file out of /incoming if we cannot open it
@@ -1082,8 +1080,6 @@ void soh_walk(mongocxx::client &connection_file, std::string &database, std::vec
                                                     auto insert = collection.insert_one(value);
 
                                                     send_live("SOH", node_type, line);
-
-                                                    cout << "SOH: Inserted adata into collection " << node_type << endl;
                                                 }
                                                 catch (const mongocxx::bulk_write_exception &err)
                                                 {
@@ -1115,7 +1111,7 @@ void soh_walk(mongocxx::client &connection_file, std::string &database, std::vec
                                                     // Insert BSON object into collection specified
                                                     auto insert = collection.insert_one(value);
 
-                                                    send_live("SOH", node_type, line);
+//                                                    send_live("SOH", node_type, line);
 
                                                     cout << "SOH: Inserted adata into collection " << node_type << endl;
                                                 }
