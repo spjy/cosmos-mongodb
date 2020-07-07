@@ -177,7 +177,7 @@ std::string execute(std::string cmd, std::string shell) {
             pclose(stream);
         }
 
-        return escape_json(data);
+        return data;
     } catch (...) {
         return std::string();
     }
