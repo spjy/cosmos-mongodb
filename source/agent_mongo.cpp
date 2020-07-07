@@ -387,7 +387,7 @@ int main(int argc, char** argv)
         std::string event = json_extract_namedmember(message, "event");
 
         // write to cosmos/nodes/node/temp/exec/node_mjd.event
-        std::ofstream out(get_nodedir(request->path_match[1].str()) + "/temp/exec/" + request->path_match[1].str() + "_" + utc2iso8601(currentmjd()) + ".event");
+        std::ofstream out(get_nodedir(request->path_match[1].str()) + "/outgoing/exec/" + request->path_match[1].str() + "_" + utc2iso8601(currentmjd()) + ".event");
         out << event;
         out.close();
 

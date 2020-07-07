@@ -619,13 +619,14 @@ void process_commands(mongocxx::client &connection_file, std::string &database, 
                 {
                     for (auto& telemetry: fs::directory_iterator(agent)) {
                         // only files with JSON structures
+                        std::string outFile;
                         if (telemetry.path().filename().string().find(".event") != std::string::npos)
                         {
                             // Uncompress telemetry file
                             gzFile gzf = gzopen(telemetry.path().c_str(), "rb");
 
                             // Get corresponding .out file of telemetry file
-                            std::string outFile = telemetry.path().parent_path().u8string() + "/" + telemetry.path().stem().stem().u8string() + ".out.gz";
+                            outFile = telemetry.path().parent_path().u8string() + "/" + telemetry.path().stem().stem().u8string() + ".out.gz";
                             gzFile out = gzopen(outFile.c_str(), "rb");
 
                             // Check if valid file
@@ -637,7 +638,7 @@ void process_commands(mongocxx::client &connection_file, std::string &database, 
 
                                 try {
                                     fs::rename(telemetry, corrupt_file);
-                                    fs::rename(telemetry, corrupt_file_out);
+                                    fs::rename(outFile, corrupt_file_out);
                                     cout << "File: Moved corrupt file to" << corrupt_file << endl;
                                     cout << "File: Moved corrupt out file to" << corrupt_file_out << endl;
                                 } catch (const std::error_code &error) {
@@ -706,6 +707,8 @@ void process_commands(mongocxx::client &connection_file, std::string &database, 
 
                                                 if (iretn > 0) {
                                                     line_out.append(out_buffer);
+                                                } else {
+                                                    cout << "Error reading out file" << endl;
                                                 }
                                             }
 
@@ -724,7 +727,11 @@ void process_commands(mongocxx::client &connection_file, std::string &database, 
                                             std::string node_type = node_path.back() + ":executed";
                                             send_live("File", node_type, line);
 
-                                            collection.find_one_and_replace(query, bsoncxx::from_json(line));
+                                            stdx::optional<bsoncxx::document::value> document = collection.find_one_and_replace(query, bsoncxx::from_json(line));
+
+                                            if (document) {
+                                                collection.insert_one(bsoncxx::from_json(line));
+                                            }
 
                                             gzclose(out);
                                         }
@@ -749,11 +756,14 @@ void process_commands(mongocxx::client &connection_file, std::string &database, 
 
                         // Move file to archive
                         std::string archive_file = data_base_path(node_path.back(), "archive", agent_type, telemetry.path().filename().string());
+                        std::string archive_file_out = data_base_path(node_path.back(), "archive", agent_type, outFile);
 
                         try {
                             fs::rename(telemetry, archive_file);
+                            fs::rename(outFile, archive_file_out);
 
                             cout << "File: Processed file " << telemetry.path() << endl;
+                            cout << "File: Processed file " << outFile << endl;
                         } catch (const std::error_code &error) {
                             cout << "File: Could not rename file " << error.message() << endl;
                         }
