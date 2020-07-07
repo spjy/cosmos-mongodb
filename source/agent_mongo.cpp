@@ -32,7 +32,6 @@
 // TODO: change include paths so that we can make reference to cosmos using a full path
 // example
 // #include <cosmos/core/agent/agentclass.h>
-static Agent *agent;
 
 static mongocxx::instance instance
 {};
@@ -48,6 +47,8 @@ int32_t request_cinfo(char* request, char* response, Agent* agent);
 static thread collect_data_thread;
 static thread file_walk_thread;
 static thread soh_walk_thread;
+static thread process_files_thread;
+static thread process_commands_thread;
 static thread maintain_agent_list_thread;
 mongocxx::client connection_file;
 
@@ -301,6 +302,28 @@ int main(int argc, char** argv)
         std::string result = execute(command, shell);
 
         resp->write(result, header);
+    };
+
+
+    // Query agent executable { "command": "agent node proc help" }
+    query.resource["^/exec/(.+)$"]["POST"] = [&connection_ring, &database, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+        std::string message = request->content.string();
+        std::string event = json_extract_namedmember(message, "event");
+
+        std::ofstream out(get_nodedir(request->path_match[1].str()) + "/exec/" + request->path_match[1].str() + "_" + std::to_string(currentmjd()) + ".event");
+
+        out << event;
+
+        auto collection = connection_ring[database]["commands"];
+        try
+        {
+            // Insert BSON object into collection specified
+            auto insert = collection.insert_one(bsoncxx::from_json(event));
+        } catch (const mongocxx::bulk_write_exception &err) {
+            cout << "WS Live: Error writing to database." << endl;
+        }
+
+        resp->write(header);
     };
 
     // Get namespace nodes
@@ -663,7 +686,8 @@ int main(int argc, char** argv)
     // Create a thread for the data collection and service requests.
     collect_data_thread = thread(collect_data_loop, std::ref(connection_ring), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes));
 //    file_walk_thread = thread(file_walk, std::ref(connection_file), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path));
-    soh_walk_thread = thread(soh_walk, std::ref(connection_file), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path));
+    process_files_thread = thread(process_files, std::ref(connection_file), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "soh");
+    process_commands_thread = thread(process_commands, std::ref(connection_file), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "exec");
     maintain_agent_list_thread = thread(maintain_agent_list, std::ref(included_nodes), std::ref(excluded_nodes), std::ref(agent_path), std::ref(shell));
 
     while(agent->running()) {
@@ -674,7 +698,8 @@ int main(int argc, char** argv)
     agent->shutdown();
     collect_data_thread.join();
 //    file_walk_thread.join();
-    soh_walk_thread.join();
+    process_files_thread.join();
+    process_commands_thread.join();
     maintain_agent_list_thread.join();
     query_thread.join();
     ws_live_thread.join();
@@ -775,8 +800,9 @@ void file_walk(mongocxx::client &connection_file, std::string &database, std::ve
         // Loop through the nodes folder
         for(auto& node: fs::directory_iterator(nodes)) {
             vector<std::string> node_path = string_split(node.path().string(), "/");
+            std::string node_directory = get_directory(node.path().string());
 		
-            if (whitelisted_node(included_nodes, excluded_nodes, node_path.back())) {
+            if (whitelisted_node(included_nodes, excluded_nodes, node_directory)) {
                 fs::path incoming = node.path();
 
                 incoming /= "incoming";
@@ -991,7 +1017,6 @@ void soh_walk(mongocxx::client &connection_file, std::string &database, std::vec
                         || telemetry.path().filename().string().find(".command") != std::string::npos)
                         {
                             // Uncompress telemetry file
-                            std::string node_type = node_path.back() + ":soh";
                             gzFile gzf = gzopen(telemetry.path().c_str(), "rb");
 
                             if (gzf == Z_NULL) {
@@ -1034,6 +1059,7 @@ void soh_walk(mongocxx::client &connection_file, std::string &database, std::vec
                                 {
                                     // Get the node's UTC
                                     std::string node_utc = json_extract_namedmember(line, "node_utc");
+                                    std::string node_type = node_path.back() + ":soh";
 
                                     if (node_utc.length() > 0)
                                     {

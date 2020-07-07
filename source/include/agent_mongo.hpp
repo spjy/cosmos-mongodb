@@ -26,6 +26,7 @@
 #include <experimental/filesystem>
 #include <set>
 #include <tuple>
+#include <sstream>
 
 #include <bsoncxx/document/value.hpp>
 #include <bsoncxx/document/view.hpp>
@@ -64,6 +65,8 @@ using namespace bsoncxx;
 using bsoncxx::builder::basic::kvp;
 using namespace bsoncxx::builder::stream;
 namespace fs = std::experimental::filesystem;
+
+static Agent *agent;
 
 //! Options available to specify when querying a Mongo database
 enum class MongoFindOption
@@ -115,12 +118,34 @@ enum class MongoFindOption
 
 const std::string device_type[] = {"pload", "ssen", "imu", "rw", "mtr", "cpu", "gps", "ant", "rxr", "txr", "tcv", "pvstrg", "batt", "htr", "motr", "tsen", "thst", "prop", "swch", "rot", "stt", "mcc", "tcu", "bus", "psen", "suchi", "cam", "telem", "disk", "tnc", "bcreg"};
 
+std::string escape_json(const std::string &s);
 std::string get_directory(const std::string path);
 map<std::string, std::string> get_keys(const std::string &request, const std::string variable_delimiter, const std::string value_delimiter);
 void str_to_lowercase(std::string &input);
 MongoFindOption option_table(std::string input);
 void set_mongo_options(mongocxx::options::find &options, std::string request);
 void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &agent_path, std::string &shell);
+void process_files(mongocxx::client &connection_file, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path, std::string agent_type);
+void process_commands(mongocxx::client &connection_file, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path, std::string agent_type);
+
+std::string escape_json(const std::string &s)
+{
+    std::ostringstream o;
+
+    for (auto c = s.cbegin(); c != s.cend(); c++) {
+        switch (*c) {
+            case '\x00': o << "\\u0000"; break;
+            case '\x01': o << "\\u0001"; break;
+            case '\x0a': o << "\\n"; break;
+            case '\x1f': o << "\\u001f"; break;
+            case '\x22': o << "\\\""; break;
+            case '\x5c': o << "\\\\"; break;
+            default: o << *c;
+        }
+    }
+
+    return o.str();
+}
 
 std::string get_directory(std::string path) {
     std::size_t directory = path.find_last_of("/\\");
@@ -152,7 +177,7 @@ std::string execute(std::string cmd, std::string shell) {
             pclose(stream);
         }
 
-        return data;
+        return escape_json(data);
     } catch (...) {
         return std::string();
     }
@@ -403,4 +428,339 @@ void set_mongo_options(mongocxx::options::find &options, std::string request) {
         cout << err.what() << " - Error parsing MongoDB find options" << endl;
     }
 
+}
+
+void process_files(mongocxx::client &connection_file, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path, std::string agent_type)
+{
+    // Get the nodes folder
+    fs::path nodes = file_walk_path;
+
+    while (agent->running())
+    {
+        // Loop through the nodes folder
+        for(auto& node: fs::directory_iterator(nodes))
+        {
+            vector<std::string> node_path = string_split(node.path().string(), "/");
+
+            // Check if node is whitelisted
+            if (whitelisted_node(included_nodes, excluded_nodes, node_path.back()))
+            {
+                fs::path agent = node.path();
+
+                // Get SOH folder
+                agent /= "incoming";
+                agent /= agent_type;
+
+                // Loop through the folder
+                if (is_directory(agent))
+                {
+                    for (auto& telemetry: fs::directory_iterator(agent)) {
+                        // only files with JSON structures
+                        if (telemetry.path().filename().string().find(".telemetry") != std::string::npos)
+                        {
+                            // Uncompress telemetry file
+                            gzFile gzf = gzopen(telemetry.path().c_str(), "rb");
+
+                            if (gzf == Z_NULL) {
+                                cout << "File: Error opening " << telemetry.path().c_str() << endl;
+                                // Move the file out of /incoming if we cannot open it
+                                std::string corrupt_file = data_base_path(node_path.back(), "corrupt", agent_type, telemetry.path().filename().string());
+
+                                try {
+                                    fs::rename(telemetry, corrupt_file);
+                                    cout << "File: Moved corrupt file to" << corrupt_file << endl;
+                                } catch (const std::error_code &error) {
+                                    cout << "File: Could not rename file " << error.message() << endl;
+                                }
+
+                                break;
+                            }
+
+                            cout << "File: Processing " << telemetry.path().c_str() << endl;
+
+                            // get the file type
+                            while (!gzeof(gzf))
+                            {
+                                std::string line;
+                                char *nodeString;
+                                char buffer[8192];
+
+                                while (!(line.back() == '\n') && !gzeof(gzf))
+                                {
+                                    nodeString = gzgets(gzf, buffer, 8192);
+
+                                    if (nodeString == Z_NULL) {
+                                        cout << "File: Error getting string " << telemetry.path().c_str() << endl;
+
+                                        break;
+                                    }
+
+                                    line.append(buffer);
+                                }
+
+                                // Check if it got to end of file in buffer
+                                if (!gzeof(gzf) && nodeString != Z_NULL)
+                                {
+                                    // Get the node's UTC
+                                    std::string node_utc = json_extract_namedmember(line, "node_utc");
+                                    std::string node_type = node_path.back() + ":" + agent_type;
+
+                                    if (node_utc.length() > 0)
+                                    {
+                                        auto collection = connection_file[database][node_type];
+                                        stdx::optional<bsoncxx::document::value> document;
+
+                                        // Query the database for the node_utc.
+                                        try
+                                        {
+                                            document = collection.find_one(bsoncxx::builder::basic::make_document(kvp("node_utc", stod(node_utc))));
+                                        }
+                                        catch (const mongocxx::query_exception &err)
+                                        {
+                                            cout << "File: Logic error when querying occurred" << endl;
+                                        }
+                                        catch (const bsoncxx::exception &err)
+                                        {
+                                            cout << "File: Could not convert JSON" << endl;
+                                        }
+
+                                        // Append node_type for live values
+                                        line.pop_back(); // Rid of \n newline char
+
+                                        // Rid of curly bracket if we pop the newline character
+                                        if (line.back() == '}') {
+                                            line.pop_back();
+                                        }
+
+                                        line.insert(line.size(), ", \"node_type\": \"" + node_type + "\"}");
+
+                                        // If an entry does not exist with node_utc, write the entry into the database
+                                        if (!document)
+                                        {
+                                            bsoncxx::document::view_or_value value;
+
+                                            try
+                                            {
+                                                // Convert JSON into BSON object to prepare for database insertion
+                                                value = bsoncxx::from_json(line);
+
+                                                try
+                                                {
+                                                    // Insert BSON object into collection specified
+                                                    auto insert = collection.insert_one(value);
+
+                                                    send_live("File", node_type, line);
+                                                }
+                                                catch (const mongocxx::bulk_write_exception &err)
+                                                {
+                                                    cout << "File: Error writing to database." << endl;
+                                                }
+                                            }
+                                            catch (const bsoncxx::exception &err)
+                                            {
+                                                cout << "File: Error converting to BSON from JSON" << endl;
+                                            }
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    break;
+                                }
+                            }
+
+                            gzclose(gzf);
+                        }
+
+                        // Move file to archive
+                        std::string archive_file = data_base_path(node_path.back(), "archive", agent_type, telemetry.path().filename().string());
+
+                        try {
+                            fs::rename(telemetry, archive_file);
+
+                            cout << "File: Processed file " << telemetry.path() << endl;
+                        } catch (const std::error_code &error) {
+                            cout << "File: Could not rename file " << error.message() << endl;
+                        }
+                    }
+                }
+            }
+        }
+
+        cout << "File: Finished walking through files." << endl;
+
+        COSMOS_SLEEP(300);
+    }
+}
+
+void process_commands(mongocxx::client &connection_file, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path, std::string agent_type)
+{
+    // Get the nodes folder
+    fs::path nodes = file_walk_path;
+
+    while (agent->running())
+    {
+        // Loop through the nodes folder
+        for(auto& node: fs::directory_iterator(nodes))
+        {
+            vector<std::string> node_path = string_split(node.path().string(), "/");
+
+            // Check if node is whitelisted
+            if (whitelisted_node(included_nodes, excluded_nodes, node_path.back()))
+            {
+                fs::path agent = node.path();
+
+                // Get SOH folder
+                agent /= "incoming";
+                agent /= agent_type;
+
+                // Loop through the folder
+                if (is_directory(agent))
+                {
+                    for (auto& telemetry: fs::directory_iterator(agent)) {
+                        // only files with JSON structures
+                        if (telemetry.path().filename().string().find(".event") != std::string::npos)
+                        {
+                            // Uncompress telemetry file
+                            gzFile gzf = gzopen(telemetry.path().c_str(), "rb");
+
+                            // Get corresponding .out file of telemetry file
+                            std::string outFile = telemetry.path().parent_path().u8string() + "/" + telemetry.path().stem().stem().u8string() + ".out.gz";
+                            gzFile out = gzopen(outFile.c_str(), "rb");
+
+                            // Check if valid file
+                            if (gzf == Z_NULL || out == Z_NULL) {
+                                cout << "File: Error opening " << telemetry.path().c_str() << endl;
+                                // Move the file out of /incoming if we cannot open it
+                                std::string corrupt_file = data_base_path(node_path.back(), "corrupt", agent_type, telemetry.path().filename().string());
+                                std::string corrupt_file_out = data_base_path(node_path.back(), "corrupt", agent_type, outFile);
+
+                                try {
+                                    fs::rename(telemetry, corrupt_file);
+                                    fs::rename(telemetry, corrupt_file_out);
+                                    cout << "File: Moved corrupt file to" << corrupt_file << endl;
+                                    cout << "File: Moved corrupt out file to" << corrupt_file_out << endl;
+                                } catch (const std::error_code &error) {
+                                    cout << "File: Could not rename file " << error.message() << endl;
+                                }
+
+                                break;
+                            }
+
+                            cout << "File: Processing " << telemetry.path().c_str() << endl;
+                            cout << "File: Processing " << outFile << endl;
+
+                            // get the file type
+                            while (!gzeof(gzf))
+                            {
+                                std::string line;
+                                char *nodeString;
+                                char buffer[8192];
+
+                                while (!(line.back() == '\n') && !gzeof(gzf))
+                                {
+                                    int errornum;
+                                    nodeString = gzgets(gzf, buffer, 8192);
+
+                                    if (nodeString == Z_NULL) {
+                                        cout << "File: Error getting string " << telemetry.path().c_str() << endl;
+
+                                        cout << gzerror(gzf, &errornum);
+
+                                        break;
+                                    }
+
+                                    line.append(buffer);
+                                }
+
+                                // Check if it got to end of file in buffer
+                                if (!gzeof(gzf) && nodeString != Z_NULL)
+                                {
+                                    // Get the node's UTC
+                                    double event_utc = stod(json_extract_namedmember(line, "event_utc"));
+                                    std::string event_name = json_extract_namedmember(line, "event_name");
+
+                                    // Remove quotes
+                                    event_name.erase(0, 1);
+                                    event_name.pop_back();
+
+                                    if (true)
+                                    {
+                                        auto collection = connection_file[database]["executed_commands"];
+                                        stdx::optional<bsoncxx::document::value> document;
+
+                                        // Query the database for the utc and name, then replace to add the event_utcexec
+                                        try
+                                        {
+                                            bsoncxx::builder::basic::document basic_builder{};
+                                            basic_builder.append(kvp("event_utc", event_utc));
+                                            basic_builder.append(kvp("event_name", event_name));
+                                            bsoncxx::document::view_or_value query = basic_builder.extract();
+
+                                            std::string line_out;
+
+                                            while (!gzeof(out))
+                                            {
+                                                char out_buffer[8192];
+                                                int32_t iretn = gzread(out, out_buffer, 8192);
+
+                                                if (iretn > 0) {
+                                                    line_out.append(out_buffer);
+                                                }
+                                            }
+
+                                            // Append node_type for live values
+                                            line.pop_back(); // Rid of \n newline char
+
+                                            // Rid of curly bracket if we pop the newline character
+                                            if (line.back() == '}') {
+                                                line.pop_back();
+                                            }
+
+                                            line.insert(line.size(), ", \"output\": \"" + escape_json(line_out) + "\"}");
+
+                                            send_live("File", "event", line);
+
+                                            collection.insert_one(bsoncxx::from_json(line));
+
+                                            gzclose(out);
+                                        }
+                                        catch (const mongocxx::query_exception &err)
+                                        {
+                                            cout << "File: Logic error when querying occurred" << endl;
+                                        }
+                                        catch (const bsoncxx::exception &err)
+                                        {
+                                            cout << "File: Could not convert JSON" << endl;
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    break;
+                                }
+                            }
+
+                            gzclose(gzf);
+                        }
+
+                        // Move file to archive
+                        std::string archive_file = data_base_path(node_path.back(), "archive", agent_type, telemetry.path().filename().string());
+
+                        try {
+                            fs::rename(telemetry, archive_file);
+
+                            cout << "File: Processed file " << telemetry.path() << endl;
+                        } catch (const std::error_code &error) {
+                            cout << "File: Could not rename file " << error.message() << endl;
+                        }
+                    }
+                }
+            }
+        }
+
+        cout << "File: Finished walking through files." << endl;
+
+        COSMOS_SLEEP(5);
+    }
 }
