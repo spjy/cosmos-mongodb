@@ -463,7 +463,8 @@ void process_files(mongocxx::client &connection_file, std::string &database, std
                 // Loop through the folder
                 if (is_directory(agent))
                 {
-                    for (auto& telemetry: fs::directory_iterator(agent)) {
+                    for (auto& telemetry: fs::directory_iterator(agent))
+                    {
                         // only files with JSON structures
                         if (telemetry.path().filename().string().find(".telemetry") != std::string::npos)
                         {
@@ -637,14 +638,13 @@ void process_commands(mongocxx::client &connection_file, std::string &database, 
                 {
                     for (auto& telemetry: fs::directory_iterator(agent)) {
                         // only files with JSON structures
-                        std::string outFile;
                         if (telemetry.path().filename().string().find(".event") != std::string::npos)
                         {
                             // Uncompress telemetry file
                             gzFile gzf = gzopen(telemetry.path().c_str(), "rb");
 
                             // Get corresponding .out file of telemetry file
-                            outFile = telemetry.path().parent_path().u8string() + "/" + telemetry.path().stem().stem().u8string() + ".out.gz";
+                            std::string outFile = telemetry.path().parent_path().u8string() + "/" + telemetry.path().stem().stem().u8string() + ".out.gz";
                             gzFile out = gzopen(outFile.c_str(), "rb");
 
                             // Check if valid file
@@ -770,20 +770,20 @@ void process_commands(mongocxx::client &connection_file, std::string &database, 
                             }
 
                             gzclose(gzf);
-                        }
 
-                        // Move file to archive
-                        std::string archive_file = data_base_path(node_path.back(), "archive", agent_type, telemetry.path().filename().string());
-                        std::string archive_file_out = data_base_path(node_path.back(), "archive", agent_type, outFile);
+                            // Move file to archive
+                            std::string archive_file = data_base_path(node_path.back(), "archive", agent_type, telemetry.path().filename().string());
+                            std::string archive_file_out = data_base_path(node_path.back(), "archive", agent_type, outFile);
 
-                        try {
-                            fs::rename(telemetry, archive_file);
-                            fs::rename(outFile, archive_file_out);
+                            try {
+                                fs::rename(telemetry, archive_file);
+                                fs::rename(outFile, archive_file_out);
 
-                            cout << "File: Processed file " << telemetry.path() << endl;
-                            cout << "File: Processed file " << outFile << endl;
-                        } catch (const std::error_code &error) {
-                            cout << "File: Could not rename file " << error.message() << endl;
+                                cout << "File: Processed file " << telemetry.path() << endl;
+                                cout << "File: Processed file " << outFile << endl;
+                            } catch (const std::error_code &error) {
+                                cout << "File: Could not rename file " << error.message() << endl;
+                            }
                         }
                     }
                 }
