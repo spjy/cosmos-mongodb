@@ -684,9 +684,9 @@ void process_commands(mongocxx::client &connection_file, std::string &database, 
                                     event_name.erase(0, 1);
                                     event_name.pop_back();
 
-                                    if (true)
+                                    if (event_name.length() > 0)
                                     {
-                                        auto collection = connection_file[database]["executed_commands"];
+                                        auto collection = connection_file[database]["commands"];
                                         stdx::optional<bsoncxx::document::value> document;
 
                                         // Query the database for the utc and name, then replace to add the event_utcexec
@@ -719,7 +719,9 @@ void process_commands(mongocxx::client &connection_file, std::string &database, 
 
                                             line.insert(line.size(), ", \"output\": \"" + escape_json(line_out) + "\"}");
 
-                                            send_live("File", "event", line);
+                                            std::string type = "event";
+
+                                            send_live("File", type, line);
 
                                             collection.find_one_and_replace(query, bsoncxx::from_json(line));
 

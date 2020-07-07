@@ -306,21 +306,23 @@ int main(int argc, char** argv)
 
 
     // Query agent executable { "command": "agent node proc help" }
-    query.resource["^/exec/(.+)$"]["POST"] = [&connection_ring, &database, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+    query.resource["^/exec/(.+)/?$"]["POST"] = [&connection_ring, &database, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         std::string message = request->content.string();
         std::string event = json_extract_namedmember(message, "event");
 
-        std::ofstream out(get_nodedir(request->path_match[1].str()) + "/exec/" + request->path_match[1].str() + "_" + std::to_string(currentmjd()) + ".event");
-
+        // write to cosmos/nodes/node/temp/exec/node_mjd.event
+        std::ofstream out(get_nodedir(request->path_match[1].str()) + "/temp/exec/" + request->path_match[1].str() + "_" + std::to_string(currentmjd()) + ".event");
         out << event;
+        out.close();
 
         auto collection = connection_ring[database]["commands"];
+
         try
         {
             // Insert BSON object into collection specified
             auto insert = collection.insert_one(bsoncxx::from_json(event));
         } catch (const mongocxx::bulk_write_exception &err) {
-            cout << "WS Live: Error writing to database." << endl;
+            cout << err.what() << endl;
         }
 
         resp->write(header);
