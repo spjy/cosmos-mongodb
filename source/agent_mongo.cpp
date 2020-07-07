@@ -304,6 +304,82 @@ int main(int argc, char** argv)
         resp->write(result, header);
     };
 
+    query.resource["^/commands/(.+)?$"]["GET"] = [&connection_ring, &database, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+        std::string message = request->content.string();
+
+        // write to cosmos/nodes/node/temp/exec/node_mjd.event
+        auto collection = connection_ring[database][request->path_match[1].str() + ":commands"];
+
+        try
+        {
+            // Get all documents
+            auto cursor = collection.find({});
+
+            std::ostringstream commands;
+
+            commands << "[";
+
+            for(auto doc : cursor) {
+              commands << bsoncxx::to_json(doc) << ",";
+            }
+
+            // Remove dangling comma
+            if (commands.str().back() == ',') {
+                commands.seekp(-1, std::ios_base::end);
+            }
+
+            commands << "]";
+
+            resp->write(commands.str(), header);
+        } catch (const mongocxx::bulk_write_exception &err) {
+            cout << err.what() << endl;
+
+            resp->write("{\"error\": \" Error retrieving from database. \"}", header);
+        }
+
+    };
+
+    query.resource["^/commands/(.+)/?$"]["POST"] = [&connection_ring, &database, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+        std::string message = request->content.string();
+        std::string command = json_extract_namedmember(message, "command");
+
+        // write to cosmos/nodes/node/temp/exec/node_mjd.event
+        auto collection = connection_ring[database][request->path_match[1].str() + ":commands"];
+
+        try
+        {
+            // Insert BSON object into collection specified
+            auto insert = collection.insert_one(bsoncxx::from_json(command));
+        } catch (const mongocxx::bulk_write_exception &err) {
+            cout << err.what() << endl;
+
+            resp->write("{\"error\": \" Error inserting into database. \"}", header);
+        }
+
+        resp->write("{ \"message\": \"Successfully created command.\" }", header);
+    };
+
+
+    query.resource["^/commands/(.+)/?$"]["DELETE"] = [&connection_ring, &database, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+        std::string message = request->content.string();
+        std::string command = json_extract_namedmember(message, "command");
+        std::string event_name = json_extract_namedmember(message, "name");
+
+        // write to cosmos/nodes/node/temp/exec/node_mjd.event
+        auto collection = connection_ring[database][request->path_match[1].str() + ":commands"];
+
+        try
+        {
+            // Insert BSON object into collection specified
+            auto insert = collection.delete_one(bsoncxx::from_json("{ \"event_name\":" + event_name + "}"));
+        } catch (const mongocxx::bulk_write_exception &err) {
+            cout << err.what() << endl;
+
+            resp->write("{\"error\": \" Error deleting. \"}", header);
+        }
+
+        resp->write("{ \"message\": \"Successfully deleted command.\" }", header);
+    };
 
     // Query agent executable { "command": "agent node proc help" }
     query.resource["^/exec/(.+)/?$"]["POST"] = [&connection_ring, &database, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
@@ -311,11 +387,11 @@ int main(int argc, char** argv)
         std::string event = json_extract_namedmember(message, "event");
 
         // write to cosmos/nodes/node/temp/exec/node_mjd.event
-        std::ofstream out(get_nodedir(request->path_match[1].str()) + "/temp/exec/" + request->path_match[1].str() + "_" + std::to_string(round(currentmjd())) + ".event");
+        std::ofstream out(get_nodedir(request->path_match[1].str()) + "/temp/exec/" + request->path_match[1].str() + "_" + utc2iso8601(currentmjd()) + ".event");
         out << event;
         out.close();
 
-        auto collection = connection_ring[database]["commands"];
+        auto collection = connection_ring[database][request->path_match[1].str() + ":executed"];
 
         try
         {
