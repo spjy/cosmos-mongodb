@@ -430,6 +430,15 @@ void set_mongo_options(mongocxx::options::find &options, std::string request) {
 
 }
 
+//! Walk through the directories created by agent_file and process the telemetry data in the incoming folder.
+//! \brief process_files
+//! \param connection_file
+//! \param database
+//! \param included_nodes
+//! \param excluded_nodes
+//! \param file_walk_path
+//! \param agent_type
+//!
 void process_files(mongocxx::client &connection_file, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path, std::string agent_type)
 {
     // Get the nodes folder
@@ -593,6 +602,15 @@ void process_files(mongocxx::client &connection_file, std::string &database, std
     }
 }
 
+//!
+//! \brief process_commands
+//! \param connection_file
+//! \param database
+//! \param included_nodes
+//! \param excluded_nodes
+//! \param file_walk_path
+//! \param agent_type
+//!
 void process_commands(mongocxx::client &connection_file, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path, std::string agent_type)
 {
     // Get the nodes folder
