@@ -721,7 +721,7 @@ void process_commands(mongocxx::client &connection_file, std::string &database, 
 
                                             send_live("File", "event", line);
 
-                                            collection.find_one_and_replace(bsoncxx::from_json(line));
+                                            collection.find_one_and_replace(query, bsoncxx::from_json(line));
 
                                             gzclose(out);
                                         }
