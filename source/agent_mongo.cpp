@@ -311,7 +311,7 @@ int main(int argc, char** argv)
         std::string event = json_extract_namedmember(message, "event");
 
         // write to cosmos/nodes/node/temp/exec/node_mjd.event
-        std::ofstream out(get_nodedir(request->path_match[1].str()) + "/temp/exec/" + request->path_match[1].str() + "_" + std::to_string(currentmjd()) + ".event");
+        std::ofstream out(get_nodedir(request->path_match[1].str()) + "/temp/exec/" + request->path_match[1].str() + "_" + std::to_string(round(currentmjd())) + ".event");
         out << event;
         out.close();
 
@@ -325,7 +325,7 @@ int main(int argc, char** argv)
             cout << err.what() << endl;
         }
 
-        resp->write(header);
+        resp->write("{ \"message\": \"Successfully generated event file.\" }", header);
     };
 
     // Get namespace nodes
