@@ -350,20 +350,22 @@ int main(int argc, char** argv)
         {
             // Insert BSON object into collection specified
             auto insert = collection.insert_one(bsoncxx::from_json(command));
+
+            resp->write("{ \"message\": \"Successfully created command.\" }", header);
         } catch (const mongocxx::bulk_write_exception &err) {
             cout << err.what() << endl;
 
             resp->write("{\"error\": \" Error inserting into database. \"}", header);
         }
-
-        resp->write("{ \"message\": \"Successfully created command.\" }", header);
     };
 
 
     query.resource["^/commands/(.+)/?$"]["DELETE"] = [&connection_ring, &database, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         std::string message = request->content.string();
-        std::string command = json_extract_namedmember(message, "command");
-        std::string event_name = json_extract_namedmember(message, "name");
+        std::string event_name = json_extract_namedmember(message, "event_name");
+
+        event_name.erase(0, 1);
+        event_name.pop_back();
 
         // write to cosmos/nodes/node/temp/exec/node_mjd.event
         auto collection = connection_ring[database][request->path_match[1].str() + ":commands"];
@@ -371,14 +373,21 @@ int main(int argc, char** argv)
         try
         {
             // Insert BSON object into collection specified
-            auto insert = collection.delete_one(bsoncxx::from_json("{ \"event_name\":" + event_name + "}"));
+            auto del = collection.delete_one(bsoncxx::builder::basic::make_document(kvp("event_name", event_name)));
+
+            if (del) {
+                resp->write("{ \"message\": \"Successfully deleted command.\" }", header);
+            } else {
+                resp->write("{\"error\": \" Error deleting. \"}", header);
+            }
         } catch (const mongocxx::bulk_write_exception &err) {
             cout << err.what() << endl;
 
             resp->write("{\"error\": \" Error deleting. \"}", header);
+        } catch (...) {
+            cout << "Error" << endl;
         }
 
-        resp->write("{ \"message\": \"Successfully deleted command.\" }", header);
     };
 
     // Query agent executable { "command": "agent node proc help" }
