@@ -1128,7 +1128,7 @@ void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<s
 
             std::for_each(sortedAgents.begin(), sortedAgents.end(), [&response](const std::pair<std::string, std::string> &item)
             {
-                response.insert(response.size(), "{\"agent\": \"" + std::get<0>(item) + "\", \"utc\": \"" + std::get<1>(item) + "\"},");
+                response.insert(response.size(), "{\"agent\": \"" + std::get<0>(item) + "\", \"utc\": " + std::get<1>(item) + "},");
             });
 
             if (response.back() == ',')
