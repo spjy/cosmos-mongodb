@@ -397,7 +397,7 @@ int main(int argc, char** argv)
         std::string node = request->path_match[1].str();
 
         // write to cosmos/nodes/node/outgoing/exec/node_mjd.event
-        log_write(node, "exec", currentmjd(), "", "event", event.c_str(), "outgoing");
+        log_write(node, "exec", currentmjd(), "", "command", event.c_str(), "outgoing");
 
         auto collection = connection_ring[database][request->path_match[1].str() + ":executed"];
 
