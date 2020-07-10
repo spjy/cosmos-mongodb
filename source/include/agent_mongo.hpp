@@ -125,8 +125,8 @@ void str_to_lowercase(std::string &input);
 MongoFindOption option_table(std::string input);
 void set_mongo_options(mongocxx::options::find &options, std::string request);
 void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &agent_path, std::string &shell);
-void process_files(mongocxx::client &connection_file, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path, std::string agent_type);
-void process_commands(mongocxx::client &connection_file, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path, std::string agent_type);
+void process_files(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path, std::string agent_type);
+void process_commands(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path, std::string agent_type);
 
 std::string escape_json(const std::string &s)
 {
@@ -439,7 +439,7 @@ void set_mongo_options(mongocxx::options::find &options, std::string request) {
 //! \param file_walk_path
 //! \param agent_type
 //!
-void process_files(mongocxx::client &connection_file, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path, std::string agent_type)
+void process_files(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path, std::string agent_type)
 {
     // Get the nodes folder
     fs::path nodes = file_walk_path;
@@ -513,11 +513,12 @@ void process_files(mongocxx::client &connection_file, std::string &database, std
                                 {
                                     // Get the node's UTC
                                     std::string node_utc = json_extract_namedmember(line, "node_utc");
-                                    std::string node_type = node_path.back() + ":" + agent_type;
+                                    std::string node_type = agent_type + ":" + node_path.back();
 
                                     if (node_utc.length() > 0)
                                     {
-                                        auto collection = connection_file[database][node_type];
+                                        auto collection = connection_file[realm][node_type];
+                                        auto any_collection = connection_file[realm]["any:" + node_path.back()];
                                         stdx::optional<bsoncxx::document::value> document;
 
                                         // Query the database for the node_utc.
@@ -558,6 +559,7 @@ void process_files(mongocxx::client &connection_file, std::string &database, std
                                                 {
                                                     // Insert BSON object into collection specified
                                                     auto insert = collection.insert_one(value);
+                                                    auto any_insert = any_collection.insert_one(value);
 
                                                     send_live("File", node_type, line);
                                                 }
@@ -612,7 +614,7 @@ void process_files(mongocxx::client &connection_file, std::string &database, std
 //! \param file_walk_path
 //! \param agent_type
 //!
-void process_commands(mongocxx::client &connection_file, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path, std::string agent_type)
+void process_commands(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path, std::string agent_type)
 {
     // Get the nodes folder
     fs::path nodes = file_walk_path;
@@ -705,7 +707,7 @@ void process_commands(mongocxx::client &connection_file, std::string &database, 
 
                                     if (event_name.length() > 0)
                                     {
-                                        auto collection = connection_file[database][node_path.back() + ":executed"];
+                                        auto collection = connection_file[realm]["executed:" + node_path.back()];
                                         stdx::optional<bsoncxx::document::value> document;
 
                                         // Query the database for the utc and name, then replace to add the event_utcexec
@@ -742,7 +744,7 @@ void process_commands(mongocxx::client &connection_file, std::string &database, 
 
                                             std::string type = "event";
 
-                                            std::string node_type = node_path.back() + ":executed";
+                                            std::string node_type = "executed:" + node_path.back();
                                             send_live("File", node_type, line);
 
                                             stdx::optional<bsoncxx::document::value> document = collection.find_one_and_replace(query, bsoncxx::from_json(line));

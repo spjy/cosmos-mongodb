@@ -38,9 +38,9 @@ static mongocxx::instance instance
 
 std::string execute(std::string cmd, std::string shell);
 void send_live(const std::string type, std::string &node_type, std::string &line);
-void collect_data_loop(mongocxx::client &connection_ring, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes);
-void file_walk(mongocxx::client &connection_file, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
-void soh_walk(mongocxx::client &connection_file, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
+void collect_data_loop(mongocxx::client &connection_ring, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes);
+void file_walk(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
+void soh_walk(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
 int32_t request_insert(char* request, char* response, Agent* agent);
 int32_t request_cinfo(char* request, char* response, Agent* agent);
 
@@ -57,11 +57,11 @@ int main(int argc, char** argv)
     std::vector<std::string> included_nodes;
     std::vector<std::string> excluded_nodes;
     std::string nodes_path;
-    std::string database = "db";
     std::string file_walk_path = get_cosmosnodes(true);
     std::string agent_path = "~/cosmos/bin/agent";
     std::string shell = "/bin/bash";
     std::string mongo_server = "mongodb://localhost:27017/";
+    std::string realm = "null";
 
     // Get command line arguments for including/excluding certain nodes
     // If include nodes by file, include path to file through --whitelist_file_path
@@ -77,9 +77,6 @@ int main(int argc, char** argv)
             else if (strncmp(argv[i], "--whitelist_file_path", sizeof(argv[i]) / sizeof(argv[i][0])) == 0) {
                 nodes_path = argv[i + 1];
             }
-            else if (strncmp(argv[i], "--database", sizeof(argv[i]) / sizeof(argv[i][0])) == 0) {
-                database = argv[i + 1];
-            }
             else if (strncmp(argv[i], "--file_walk_path", sizeof(argv[i]) / sizeof(argv[i][0])) == 0) {
                 file_walk_path = argv[i + 1];
             }
@@ -91,6 +88,9 @@ int main(int argc, char** argv)
             }
             else if (strncmp(argv[i], "--mongo_server", sizeof(argv[i]) / sizeof(argv[i][0])) == 0) {
                 mongo_server = argv[i + 1];
+            }
+            else if (strncmp(argv[i], "--realm", sizeof(argv[i]) / sizeof(argv[i][0])) == 0) {
+                realm = argv[i + 1];
             }
         }
     }
@@ -152,7 +152,7 @@ int main(int argc, char** argv)
     }
 
     cout << endl << "MongoDB server: " << mongo_server << endl;
-    cout << "Inserting into database: " << database << endl;
+    cout << "Inserting into database: " << realm << endl;
     cout << "File walk nodes folder: " << file_walk_path << endl;
     cout << "Agent path: " << agent_path << endl;
     cout << "Shell path: " << shell << endl;
@@ -304,11 +304,11 @@ int main(int argc, char** argv)
         resp->write(result, header);
     };
 
-    query.resource["^/commands/(.+)?$"]["GET"] = [&connection_ring, &database, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+    query.resource["^/commands/(.+)?$"]["GET"] = [&connection_ring, &realm, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         std::string message = request->content.string();
 
         // write to cosmos/nodes/node/temp/exec/node_mjd.event
-        auto collection = connection_ring[database][request->path_match[1].str() + ":commands"];
+        auto collection = connection_ring[realm]["commands:" + request->path_match[1].str()];
 
         try
         {
@@ -339,12 +339,12 @@ int main(int argc, char** argv)
 
     };
 
-    query.resource["^/commands/(.+)/?$"]["POST"] = [&connection_ring, &database, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+    query.resource["^/commands/(.+)/?$"]["POST"] = [&connection_ring, &realm, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         std::string message = request->content.string();
         std::string command = json_extract_namedmember(message, "command");
 
         // write to cosmos/nodes/node/temp/exec/node_mjd.event
-        auto collection = connection_ring[database][request->path_match[1].str() + ":commands"];
+        auto collection = connection_ring[realm]["commands:" + request->path_match[1].str()];
 
         try
         {
@@ -360,7 +360,7 @@ int main(int argc, char** argv)
     };
 
 
-    query.resource["^/commands/(.+)/?$"]["DELETE"] = [&connection_ring, &database, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+    query.resource["^/commands/(.+)/?$"]["DELETE"] = [&connection_ring, &realm, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         std::string message = request->content.string();
         std::string event_name = json_extract_namedmember(message, "event_name");
 
@@ -368,7 +368,7 @@ int main(int argc, char** argv)
         event_name.pop_back();
 
         // write to cosmos/nodes/node/temp/exec/node_mjd.event
-        auto collection = connection_ring[database][request->path_match[1].str() + ":commands"];
+        auto collection = connection_ring[realm][request->path_match[1].str() + ":commands"];
 
         try
         {
@@ -387,11 +387,10 @@ int main(int argc, char** argv)
         } catch (...) {
             cout << "Error" << endl;
         }
-
     };
 
     // Query agent executable { "command": "agent node proc help" }
-    query.resource["^/exec/(.+)/?$"]["POST"] = [&connection_ring, &database, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+    query.resource["^/exec/(.+)/?$"]["POST"] = [&connection_ring, &realm, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         std::string message = request->content.string();
         std::string event = json_extract_namedmember(message, "event");
         std::string node = request->path_match[1].str();
@@ -399,7 +398,7 @@ int main(int argc, char** argv)
         // write to cosmos/nodes/node/outgoing/exec/node_mjd.event
         log_write(node, "exec", currentmjd(), "", "command", event.c_str(), "outgoing");
 
-        auto collection = connection_ring[database][request->path_match[1].str() + ":executed"];
+        auto collection = connection_ring[realm][request->path_match[1].str() + ":executed"];
 
         try
         {
@@ -770,10 +769,10 @@ int main(int argc, char** argv)
         exit (iretn);
 
     // Create a thread for the data collection and service requests.
-    collect_data_thread = thread(collect_data_loop, std::ref(connection_ring), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes));
+    collect_data_thread = thread(collect_data_loop, std::ref(connection_ring), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes));
 //    file_walk_thread = thread(file_walk, std::ref(connection_file), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path));
-    process_files_thread = thread(process_files, std::ref(connection_file), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "soh");
-    process_commands_thread = thread(process_commands, std::ref(connection_file), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "exec");
+    process_files_thread = thread(process_files, std::ref(connection_file), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "soh");
+    process_commands_thread = thread(process_commands, std::ref(connection_file), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "exec");
     maintain_agent_list_thread = thread(maintain_agent_list, std::ref(included_nodes), std::ref(excluded_nodes), std::ref(agent_path), std::ref(shell));
 
     while(agent->running()) {
@@ -799,7 +798,7 @@ int main(int argc, char** argv)
  * \param connection MongoDB connection instance
  */
 
-void collect_data_loop(mongocxx::client &connection_ring, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes) {
+void collect_data_loop(mongocxx::client &connection_ring, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes) {
     while (agent->running()) {
         int32_t iretn;
 
@@ -830,8 +829,9 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &database,
                 std::string node_type = node + ":" + type;
 
                 // Connect to the database and store in the collection of the node name
-                if (whitelisted_node(included_nodes, excluded_nodes, node_type)) {
-                    auto collection = connection_ring[database][node_type];
+                if (whitelisted_node(included_nodes, excluded_nodes, node)) {
+                    auto collection = connection_ring[realm][node];
+                    auto any_collection = connection_ring[realm]["any"];
                     std::string response;
                     mongocxx::options::find options; // store by node
 
@@ -852,11 +852,12 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &database,
                         {
                             // Insert BSON object into collection specified
                             auto insert = collection.insert_one(value);
+                            auto any_insert = any_collection.insert_one(value);
 
-                            cout << "WS Live: Inserted adata into collection " << node_type << endl;
+                            cout << "WS Live: Inserted adata " << node_type << endl;
 
                             if (type != "exec") {
-                                send_live("WS Live", node_type, adata);
+                                send_live("WS Live", realm, adata);
                             }
                         } catch (const mongocxx::bulk_write_exception &err) {
                             cout << "WS Live: Error writing to database." << endl;
@@ -876,7 +877,7 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &database,
 //! \brief file_walk Loop through nodes, then through the incoming folder, then through each process, and finally through each telemetry file.
 //! Unzip the file, open it and go line by line and insert the entry into the database. Once done, move the processed file into the archive folder.
 //!
-void file_walk(mongocxx::client &connection_file, std::string &database, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path) {
+void file_walk(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path) {
     // Get the nodes folder
     fs::path nodes = file_walk_path;
 
@@ -957,7 +958,7 @@ void file_walk(mongocxx::client &connection_file, std::string &database, std::ve
                                             if (node_utc.length() > 0)
                                             {
 
-                                                auto collection = connection_file[database][node_type];
+                                                auto collection = connection_file[realm][node_type];
                                                 stdx::optional<bsoncxx::document::value> document;
 
                                                 // Query the database for the node_utc.
@@ -1008,7 +1009,7 @@ void file_walk(mongocxx::client &connection_file, std::string &database, std::ve
                                                 if(node_utc.length() > 0 )
                                                 {
 
-                                                    auto collection = connection_file[database][node_type];
+                                                    auto collection = connection_file[realm][node_type];
                                                     stdx::optional<bsoncxx::document::value> document;
                                                     bsoncxx::document::view_or_value value;
 
