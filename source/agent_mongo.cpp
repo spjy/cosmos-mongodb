@@ -888,7 +888,7 @@ void file_walk(mongocxx::client &connection_file, std::string &realm, std::vecto
         for(auto& node: fs::directory_iterator(nodes)) {
             vector<std::string> node_path = string_split(node.path().string(), "/");
             std::string node_directory = get_directory(node.path().string());
-		
+
             if (whitelisted_node(included_nodes, excluded_nodes, node_directory)) {
                 fs::path incoming = node.path();
 
@@ -1074,6 +1074,8 @@ void file_walk(mongocxx::client &connection_file, std::string &realm, std::vecto
 void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &agent_path, std::string &shell) {
     std::set<std::pair<std::string, std::string>> previousSortedAgents;
 
+    std::set<std::string> full_list;
+
     while (agent->running())
     {
         std::set<std::pair<std::string, std::string>> sortedAgents;
@@ -1121,15 +1123,25 @@ void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<s
                         std::pair<std::string, std::string> agent_node_proc_utc(node + ":" + bsoncxx::string::to_string(agent_proc.get_utf8().value), std::to_string(agent_utc.get_double().value));
 
                         sortedAgents.insert(agent_node_proc_utc);
+
+                        if (full_list.find(node + ":" + bsoncxx::string::to_string(agent_proc.get_utf8().value)) == full_list.end()) {
+                            full_list.insert(node + ":" + bsoncxx::string::to_string(agent_proc.get_utf8().value));
+                        }
                     }
                 }
             }
 
             std::string response = "{\"node_type\": \"list\", \"agent_list\": [";
+            std::string full = "{\"node_type\": \"list\", \"full_list\": {";
 
             std::for_each(sortedAgents.begin(), sortedAgents.end(), [&response](const std::pair<std::string, std::string> &item)
             {
                 response.insert(response.size(), "{\"agent\": \"" + std::get<0>(item) + "\", \"utc\": " + std::get<1>(item) + "},");
+            });
+
+            std::for_each(full_list.begin(), full_list.end(), [&full](const std::string &item)
+            {
+                full.insert(full.size(), "\"" + item + "\",");
             });
 
             if (response.back() == ',')
@@ -1137,14 +1149,20 @@ void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<s
                 response.pop_back();
             }
 
+            if (full.back() == ',') {
+                full.pop_back();
+            }
+
+            full.insert(full.size(), "}}");
             response.insert(response.size(), "]}");
 
             if (previousSortedAgents != sortedAgents) {
-                client.on_open = [&response](std::shared_ptr<WsClient::Connection> connection)
+                client.on_open = [&response, &full](std::shared_ptr<WsClient::Connection> connection)
                 {
                     cout << "WS Agent Live: Broadcasted updated agent list" << endl;
 
                     connection->send(response);
+                    connection->send(full);
 
                     connection->send_close(1000);
                 };
