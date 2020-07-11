@@ -1132,16 +1132,11 @@ void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<s
             }
 
             std::string response = "{\"node_type\": \"list\", \"agent_list\": [";
-            std::string full = "{\"node_type\": \"list\", \"full_list\": {";
+            std::string full = ", \"full_list\": [";
 
             std::for_each(sortedAgents.begin(), sortedAgents.end(), [&response](const std::pair<std::string, std::string> &item)
             {
                 response.insert(response.size(), "{\"agent\": \"" + std::get<0>(item) + "\", \"utc\": " + std::get<1>(item) + "},");
-            });
-
-            std::for_each(full_list.begin(), full_list.end(), [&full](const std::string &item)
-            {
-                full.insert(full.size(), "\"" + item + "\",");
             });
 
             if (response.back() == ',')
@@ -1149,12 +1144,24 @@ void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<s
                 response.pop_back();
             }
 
-            if (full.back() == ',') {
-                full.pop_back();
+            response.insert(response.size(), "]");
+
+            if (full_list.end() != full_list.begin()) {
+                std::for_each(full_list.begin(), full_list.end(), [&full](const std::string &item)
+                {
+                    full.insert(full.size(), "\"" + item + "\",");
+                });
+
+                if (full.back() == ',')
+                {
+                    full.pop_back();
+                }
+
+                full.insert(full.size(), "]");
+                response.insert(response.size(), full);
             }
 
-            full.insert(full.size(), "}}");
-            response.insert(response.size(), "]}");
+            response.insert(response.size(), "}");
 
             if (previousSortedAgents != sortedAgents) {
                 client.on_open = [&response, &full](std::shared_ptr<WsClient::Connection> connection)
