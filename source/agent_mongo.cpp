@@ -42,7 +42,6 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &realm, st
 void file_walk(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
 void soh_walk(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
 int32_t request_insert(char* request, char* response, Agent* agent);
-int32_t request_cinfo(char* request, char* response, Agent* agent);
 
 static thread collect_data_thread;
 static thread file_walk_thread;
@@ -763,9 +762,6 @@ int main(int argc, char** argv)
     int32_t iretn;
     // Add agent request functions
     if ((iretn=agent->add_request("insert", request_insert, "db collection entry_json", "inserts entry_json to collection in db")))
-        exit (iretn);
-
-    if ((iretn=agent->add_request("cinfo", request_cinfo, "cinfo", "get cinfo info")))
         exit (iretn);
 
     // Create a thread for the data collection and service requests.
