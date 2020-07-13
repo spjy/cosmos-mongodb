@@ -1074,7 +1074,7 @@ void file_walk(mongocxx::client &connection_file, std::string &realm, std::vecto
 void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &agent_path, std::string &shell) {
     std::set<std::pair<std::string, std::string>> previousSortedAgents;
 
-    std::set<std::string> full_list;
+    std::map<std::string, std::string> fullList;
 
     while (agent->running())
     {
@@ -1123,18 +1123,25 @@ void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<s
                         std::pair<std::string, std::string> agent_node_proc_utc(node + ":" + bsoncxx::string::to_string(agent_proc.get_utf8().value), std::to_string(agent_utc.get_double().value));
 
                         sortedAgents.insert(agent_node_proc_utc);
-
-                        if (full_list.find(node + ":" + bsoncxx::string::to_string(agent_proc.get_utf8().value)) == full_list.end()) {
-                            full_list.insert(node + ":" + bsoncxx::string::to_string(agent_proc.get_utf8().value));
-                        }
                     }
                 }
             }
 
             std::string response = "{\"node_type\": \"list\", \"agent_list\": [";
-            std::string full = ", \"full_list\": [";
 
-            std::for_each(sortedAgents.begin(), sortedAgents.end(), [&response](const std::pair<std::string, std::string> &item)
+            std::for_each(fullList.begin(), fullList.end(), [&fullList](const std::pair<std::string, std::string> &item)
+            {
+                if (fullList[std::get<0>(item)][0] != *"-") {
+                   fullList[std::get<0>(item)] = "-" + fullList[std::get<0>(item)];
+                }
+            });
+
+            std::for_each(sortedAgents.begin(), sortedAgents.end(), [&fullList](const std::pair<std::string, std::string> &item)
+            {
+                  fullList[std::get<0>(item)] = std::get<1>(item);
+            });
+
+            std::for_each(fullList.begin(), fullList.end(), [&response](const std::pair<std::string, std::string> &item)
             {
                 response.insert(response.size(), "{\"agent\": \"" + std::get<0>(item) + "\", \"utc\": " + std::get<1>(item) + "},");
             });
@@ -1144,32 +1151,14 @@ void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<s
                 response.pop_back();
             }
 
-            response.insert(response.size(), "]");
-
-            if (full_list.end() != full_list.begin()) {
-                std::for_each(full_list.begin(), full_list.end(), [&full](const std::string &item)
-                {
-                    full.insert(full.size(), "\"" + item + "\",");
-                });
-
-                if (full.back() == ',')
-                {
-                    full.pop_back();
-                }
-
-                full.insert(full.size(), "]");
-                response.insert(response.size(), full);
-            }
-
-            response.insert(response.size(), "}");
+            response.insert(response.size(), "]}");
 
             if (previousSortedAgents != sortedAgents) {
-                client.on_open = [&response, &full](std::shared_ptr<WsClient::Connection> connection)
+                client.on_open = [&response](std::shared_ptr<WsClient::Connection> connection)
                 {
                     cout << "WS Agent Live: Broadcasted updated agent list" << endl;
 
                     connection->send(response);
-                    connection->send(full);
 
                     connection->send_close(1000);
                 };
