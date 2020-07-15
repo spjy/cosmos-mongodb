@@ -367,7 +367,7 @@ int main(int argc, char** argv)
         event_name.pop_back();
 
         // write to cosmos/nodes/node/temp/exec/node_mjd.event
-        auto collection = connection_ring[realm][request->path_match[1].str() + ":commands"];
+        auto collection = connection_ring[realm]["commands:" + request->path_match[1].str()];
 
         try
         {
