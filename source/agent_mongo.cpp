@@ -884,7 +884,7 @@ void file_walk(mongocxx::client &connection_file, std::string &realm, std::vecto
         for(auto& node: fs::directory_iterator(nodes)) {
             vector<std::string> node_path = string_split(node.path().string(), "/");
             std::string node_directory = get_directory(node.path().string());
-		
+
             if (whitelisted_node(included_nodes, excluded_nodes, node_directory)) {
                 fs::path incoming = node.path();
 
@@ -1070,6 +1070,8 @@ void file_walk(mongocxx::client &connection_file, std::string &realm, std::vecto
 void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &agent_path, std::string &shell) {
     std::set<std::pair<std::string, std::string>> previousSortedAgents;
 
+    std::map<std::string, std::string> fullList;
+
     while (agent->running())
     {
         std::set<std::pair<std::string, std::string>> sortedAgents;
@@ -1123,7 +1125,19 @@ void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<s
 
             std::string response = "{\"node_type\": \"list\", \"agent_list\": [";
 
-            std::for_each(sortedAgents.begin(), sortedAgents.end(), [&response](const std::pair<std::string, std::string> &item)
+            std::for_each(fullList.begin(), fullList.end(), [&fullList](const std::pair<std::string, std::string> &item)
+            {
+                if (fullList[std::get<0>(item)][0] != *"-") {
+                   fullList[std::get<0>(item)] = "-" + fullList[std::get<0>(item)];
+                }
+            });
+
+            std::for_each(sortedAgents.begin(), sortedAgents.end(), [&fullList](const std::pair<std::string, std::string> &item)
+            {
+                  fullList[std::get<0>(item)] = std::get<1>(item);
+            });
+
+            std::for_each(fullList.begin(), fullList.end(), [&response](const std::pair<std::string, std::string> &item)
             {
                 response.insert(response.size(), "{\"agent\": \"" + std::get<0>(item) + "\", \"utc\": " + std::get<1>(item) + "},");
             });
