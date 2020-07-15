@@ -658,7 +658,10 @@ void process_commands(mongocxx::client &connection_file, std::string &realm, std
 
                                 try {
                                     fs::rename(telemetry, corrupt_file);
-                                    fs::rename(outFile, corrupt_file_out);
+
+                                    fs::is_regular_file(outFile) {
+                                        fs::rename(outFile, corrupt_file_out);
+                                    }
                                     cout << "File: Moved corrupt file to" << corrupt_file << endl;
                                     cout << "File: Moved corrupt out file to" << corrupt_file_out << endl;
                                 } catch (const std::error_code &error) {
@@ -781,7 +784,10 @@ void process_commands(mongocxx::client &connection_file, std::string &realm, std
 
                             try {
                                 fs::rename(telemetry, archive_file);
-                                fs::rename(outFile, archive_file_out);
+
+                                if (fs::is_regular_file(outFile)) {
+                                    fs::rename(outFile, archive_file_out);
+                                }
 
                                 cout << "File: Processed file " << telemetry.path().c_str() << endl;
                                 cout << "File: Processed file " << outFile.c_str() << endl;
