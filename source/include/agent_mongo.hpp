@@ -659,7 +659,7 @@ void process_commands(mongocxx::client &connection_file, std::string &realm, std
                                 try {
                                     fs::rename(telemetry, corrupt_file);
 
-                                    fs::is_regular_file(outFile) {
+                                    if (fs::is_regular_file(outFile)) {
                                         fs::rename(outFile, corrupt_file_out);
                                     }
                                     cout << "File: Moved corrupt file to" << corrupt_file << endl;
