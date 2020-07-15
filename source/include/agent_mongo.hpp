@@ -646,7 +646,7 @@ void process_commands(mongocxx::client &connection_file, std::string &realm, std
                             gzFile gzf = gzopen(telemetry.path().c_str(), "rb");
 
                             // Get corresponding .out file of telemetry file
-                            std::string outFile = telemetry.path().parent_path().u8string() + "/" + telemetry.path().stem().stem().u8string() + ".out.gz";
+                            fs::path outFile = telemetry.path().parent_path().string() + "/" + telemetry.path().stem().stem().string() + ".out.gz";
                             gzFile out = gzopen(outFile.c_str(), "rb");
 
                             // Check if valid file
@@ -654,7 +654,7 @@ void process_commands(mongocxx::client &connection_file, std::string &realm, std
                                 cout << "File: Error opening " << telemetry.path().c_str() << endl;
                                 // Move the file out of /incoming if we cannot open it
                                 std::string corrupt_file = data_base_path(node_path.back(), "corrupt", agent_type, telemetry.path().filename().string());
-                                std::string corrupt_file_out = data_base_path(node_path.back(), "corrupt", agent_type, outFile);
+                                std::string corrupt_file_out = data_base_path(node_path.back(), "corrupt", agent_type, outFile.filename().string());
 
                                 try {
                                     fs::rename(telemetry, corrupt_file);
@@ -728,10 +728,10 @@ void process_commands(mongocxx::client &connection_file, std::string &realm, std
                                                 if (iretn > 0) {
                                                     line_out.append(out_buffer);
                                                 } else {
-                                                    cout << "Error reading out file" << outFile << endl;
+                                                    cout << "Error reading out file" << outFile.c_str() << endl;
 
                                                     std::string corrupt_file = data_base_path(node_path.back(), "corrupt", agent_type, telemetry.path().filename().string());
-                                                    std::string corrupt_file_out = data_base_path(node_path.back(), "corrupt", agent_type, outFile);
+                                                    std::string corrupt_file_out = data_base_path(node_path.back(), "corrupt", agent_type, outFile.filename().string());
 
                                                     try {
                                                         fs::rename(telemetry, corrupt_file);
@@ -789,14 +789,14 @@ void process_commands(mongocxx::client &connection_file, std::string &realm, std
 
                             // Move file to archive
                             std::string archive_file = data_base_path(node_path.back(), "archive", agent_type, telemetry.path().filename().string());
-                            std::string archive_file_out = data_base_path(node_path.back(), "archive", agent_type, outFile);
+                            std::string archive_file_out = data_base_path(node_path.back(), "archive", agent_type, outFile.filename().string());
 
                             try {
                                 fs::rename(telemetry, archive_file);
                                 fs::rename(outFile, archive_file_out);
 
-                                cout << "File: Processed file " << telemetry.path() << endl;
-                                cout << "File: Processed file " << outFile << endl;
+                                cout << "File: Processed file " << telemetry.path().c_str() << endl;
+                                cout << "File: Processed file " << outFile.c_str() << endl;
                             } catch (const std::error_code &error) {
                                 cout << "File: Could not rename file " << error.message() << endl;
                             }
