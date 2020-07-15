@@ -730,18 +730,6 @@ void process_commands(mongocxx::client &connection_file, std::string &realm, std
                                                 } else {
                                                     cout << "Error reading out file" << outFile.c_str() << endl;
 
-                                                    std::string corrupt_file = data_base_path(node_path.back(), "corrupt", agent_type, telemetry.path().filename().string());
-                                                    std::string corrupt_file_out = data_base_path(node_path.back(), "corrupt", agent_type, outFile.filename().string());
-
-                                                    try {
-                                                        fs::rename(telemetry, corrupt_file);
-                                                        fs::rename(outFile, corrupt_file_out);
-                                                        cout << "File: Moved corrupt file to" << corrupt_file << endl;
-                                                        cout << "File: Moved corrupt out file to" << corrupt_file_out << endl;
-                                                    } catch (const std::error_code &error) {
-                                                        cout << "File: Could not rename file " << error.message() << endl;
-                                                    }
-
                                                     break;
                                                 }
                                             }
