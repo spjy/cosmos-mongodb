@@ -569,7 +569,7 @@ int main(int argc, char** argv)
 
             ifstream pieces;
             std::string node_pieces;
-            int num_pieces = 0;
+            unsigned int num_pieces = 0;
 
             pieces.open(pieces_file.c_str(), std::ifstream::in);
 
@@ -607,7 +607,7 @@ int main(int argc, char** argv)
 
             nodeproc_list << "}, \"values\":{";
 
-            if (s >= 0) {
+            if (s >= 0 && struc->device.size() == num_pieces) {
                 std::string listvalues = json_list_of_all(struc);
 
                 listvalues.erase(0, 1);
