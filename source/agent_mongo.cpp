@@ -50,6 +50,7 @@ static thread soh_walk_thread;
 static thread process_files_thread;
 static thread process_commands_thread;
 static thread maintain_agent_list_thread;
+static thread maintain_file_list_thread;
 mongocxx::client connection_file;
 
 int main(int argc, char** argv)
@@ -388,7 +389,6 @@ int main(int argc, char** argv)
             cout << "Error" << endl;
         }
     };
-
     // Query agent executable { "command": "agent node proc help" }
     query.resource["^/exec/(.+)/?$"]["POST"] = [&connection_ring, &realm, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         std::string message = request->content.string();
@@ -411,8 +411,8 @@ int main(int argc, char** argv)
         resp->write("{ \"message\": \"Successfully generated event file.\" }", header);
     };
 
-    // Get namespace nodes
-    query.resource["^/namespace/nodes$"]["GET"] = [&file_walk_path, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+    // Get  nodes
+    query.resource["^//nodes$"]["GET"] = [&file_walk_path, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         fs::path nodes = file_walk_path;
         std::ostringstream nodes_list;
 
@@ -437,8 +437,8 @@ int main(int argc, char** argv)
         resp->write(nodes_list.str(), header);
     };
 
-    // Get namespace nodes, processes and pieces
-    query.resource["^/namespace/agents$"]["GET"] = [&file_walk_path, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+    // Get  nodes, processes and pieces
+    query.resource["^//agents$"]["GET"] = [&file_walk_path, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         fs::path nodes = file_walk_path;
         std::ostringstream nodeproc_list;
 
@@ -482,7 +482,7 @@ int main(int argc, char** argv)
         resp->write(nodeproc_list.str(), header);
     };
 
-    // Get namespace nodes, processes and pieces
+    // Get  nodes, processes and pieces
     query.resource["^/namespace/pieces$"]["GET"] = [&file_walk_path, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         fs::path nodes = file_walk_path;
         std::ostringstream nodeproc_list;
@@ -774,6 +774,7 @@ int main(int argc, char** argv)
     process_files_thread = thread(process_files, std::ref(connection_file), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "soh");
     process_commands_thread = thread(process_commands, std::ref(connection_file), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "exec");
     maintain_agent_list_thread = thread(maintain_agent_list, std::ref(included_nodes), std::ref(excluded_nodes), std::ref(agent_path), std::ref(shell));
+    maintain_file_list_thread = thread(maintain_file_list, std::ref(included_nodes), std::ref(excluded_nodes), std::ref(agent_path), std::ref(shell));
 
     while(agent->running()) {
         // Sleep for 1 sec
@@ -786,6 +787,7 @@ int main(int argc, char** argv)
     process_files_thread.join();
     process_commands_thread.join();
     maintain_agent_list_thread.join();
+    maintain_file_list_thread.join();
     query_thread.join();
     ws_live_thread.join();
 
@@ -1067,6 +1069,124 @@ void file_walk(mongocxx::client &connection_file, std::string &realm, std::vecto
     }
 }
 
+void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &agent_path, std::string &shell) {
+    std::string previousFiles;
+
+    while (agent->running())
+    {
+        std::string list;
+        std::string response = "{\"node_type\": \"file\", \"outgoing\": [";
+
+        WsClient client("localhost:8081/live/file_list");
+
+        std::for_each(included_nodes.begin(), included_nodes.end(), [&list, &response, &agent_path, &shell](const std::string &item)
+        {
+            list = execute("\"" + agent_path + " " + item + " file list_outgoing_json\"", shell);
+
+            try
+            {
+                bsoncxx::document::value json = bsoncxx::from_json(list);
+                bsoncxx::document::view opt { json.view() };
+
+                bsoncxx::document::element agent_file
+                {
+                    opt["output"].get_document().view()["outgoing"]
+                };
+
+                response.insert(response.size(), "{\"" + item + ":file\": [");
+
+                bsoncxx::array::view agent_file_array {agent_file.get_array().value};
+
+                for (bsoncxx::array::element e : agent_file_array)
+                {
+                    if (e)
+                    {
+                        bsoncxx::document::element tx_id
+                        {
+                            e.get_document().view()["tx_id"]
+                        };
+
+                        bsoncxx::document::element agent
+                        {
+                            e.get_document().view()["agent"]
+                        };
+
+                        bsoncxx::document::element name
+                        {
+                            e.get_document().view()["name"]
+                        };
+
+                        bsoncxx::document::element size
+                        {
+                            e.get_document().view()["size"]
+                        };
+
+                        bsoncxx::document::element bytes
+                        {
+                            e.get_document().view()["bytes"]
+                        };
+
+                        response.insert(response.size(),
+                            "{\"tx_id\": " + std::to_string(tx_id.get_double().value) +
+                            ", \"agent\": \"" + bsoncxx::string::to_string(agent.get_utf8().value) +
+                            ", \"name\": \"" + bsoncxx::string::to_string(name.get_utf8().value) +
+                            ", \"size\": " + std::to_string(size.get_double().value) +
+                            ", \"bytes\": " + std::to_string(bytes.get_double().value) +
+                            "},");
+                    }
+                }
+
+                if (response.back() == ',')
+                {
+                    response.pop_back();
+                }
+
+                response.insert(response.size(), "]},");
+            }
+            catch (const bsoncxx::exception &err)
+            {
+                cout << "WS File Live: Error converting to BSON from JSON" << endl;
+            }
+        });
+
+        if (response.back() == ',')
+        {
+            response.pop_back();
+        }
+
+        response.insert(response.size(), "]}");
+
+        if (previousFiles != response) {
+            client.on_open = [&response](std::shared_ptr<WsClient::Connection> connection)
+            {
+                cout << response << endl;
+                connection->send(response);
+
+                connection->send_close(1000);
+            };
+
+            client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
+            {
+                if (status != 1000) {
+                    cout << "WS Live: Closed connection with status code " << status << endl;
+                }
+            };
+
+            // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
+            client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
+            {
+                cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
+            };
+
+            client.start();
+
+            previousFiles = response;
+        }
+
+        COSMOS_SLEEP(5);
+    }
+}
+
 //! Maintain a list of agents and send it through the socket.
 //! \brief maintain_agent_list Query the agent list at a certain interval and maintain the list in a sorted set. Send it off to the websocket if anything changes.
 //! Execute the agent list_json command, check if node is whitelisted, extract data from json, insert into set, if set is changed then send the update via the live websocket.
@@ -1141,7 +1261,7 @@ void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<s
                   fullList[std::get<0>(item)] = std::get<1>(item);
             });
 
-            std::for_each(fullList.begin(), fullList.end(), [&response](const std::pair<std::string, std::string> &item)
+            std::for_each(sortedAgents.begin(), sortedAgents.end(), [&response](const std::pair<std::string, std::string> &item)
             {
                 response.insert(response.size(), "{\"agent\": \"" + std::get<0>(item) + "\", \"utc\": " + std::get<1>(item) + "},");
             });
@@ -1188,7 +1308,7 @@ void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<s
 
         COSMOS_SLEEP(5);
     }
-}
+ }
 
 int32_t request_insert(char* request, char* response, Agent* agent) {
     std::string req(request);
