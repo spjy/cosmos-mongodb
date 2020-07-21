@@ -42,7 +42,6 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &realm, st
 void file_walk(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
 void soh_walk(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
 int32_t request_insert(char* request, char* response, Agent* agent);
-int32_t request_cinfo(char* request, char* response, Agent* agent);
 
 static thread collect_data_thread;
 static thread file_walk_thread;
@@ -369,7 +368,7 @@ int main(int argc, char** argv)
         event_name.pop_back();
 
         // write to cosmos/nodes/node/temp/exec/node_mjd.event
-        auto collection = connection_ring[realm][request->path_match[1].str() + ":commands"];
+        auto collection = connection_ring[realm]["commands:" + request->path_match[1].str()];
 
         try
         {
@@ -570,7 +569,7 @@ int main(int argc, char** argv)
 
             ifstream pieces;
             std::string node_pieces;
-            int num_pieces = 0;
+            unsigned int num_pieces = 0;
 
             pieces.open(pieces_file.c_str(), std::ifstream::in);
 
@@ -608,7 +607,7 @@ int main(int argc, char** argv)
 
             nodeproc_list << "}, \"values\":{";
 
-            if (s >= 0) {
+            if (s >= 0 && struc->device.size() == num_pieces) {
                 std::string listvalues = json_list_of_all(struc);
 
                 listvalues.erase(0, 1);
@@ -763,9 +762,6 @@ int main(int argc, char** argv)
     int32_t iretn;
     // Add agent request functions
     if ((iretn=agent->add_request("insert", request_insert, "db collection entry_json", "inserts entry_json to collection in db")))
-        exit (iretn);
-
-    if ((iretn=agent->add_request("cinfo", request_cinfo, "cinfo", "get cinfo info")))
         exit (iretn);
 
     // Create a thread for the data collection and service requests.
@@ -1352,22 +1348,5 @@ int32_t request_insert(char* request, char* response, Agent* agent) {
         cout << "Request: Error converting to BSON from JSON ("<<entry<<")" << endl;
         sprintf(response,"Error converting to BSON from JSON.");
     }
-    return 0;
-}
-
-int32_t request_cinfo(char* request, char* response, Agent* agent) {
-    //std::string soh_string = "{\"device_ssen_utc_000\":0,\"device_ssen_temp_000\":300,\"device_ssen_azimuth_000\":0,\"device_ssen_elevation_000\":0,\"device_ssen_qva_000\":0,\"device_ssen_qvb_000\":0,\"device_ssen_qvc_000\":0,\"device_ssen_qvd_000\":0,\"device_imu_utc_000\":0,\"device_imu_temp_000\":300,\"device_imu_accel_000\":[0,0,0],\"device_imu_omega_000\":[0,0,0],\"device_imu_alpha_000\":[0,0,0],\"device_imu_mag_000\":[0,0,0],\"device_imu_bdot_000\":[0,0,0],\"device_rw_utc_000\":0,\"device_rw_temp_000\":300,\"device_rw_omg_000\":0,\"device_rw_alp_000\":0,\"device_rw_utc_001\":0,\"device_rw_temp_001\":300,\"device_rw_omg_001\":0,\"device_rw_alp_001\":0,\"device_rw_utc_002\":0,\"device_rw_temp_002\":300,\"device_rw_omg_002\":0,\"device_rw_alp_002\":0,\"device_mtr_utc_000\":0,\"device_mtr_temp_000\":300,\"device_mtr_mom_000\":0,\"device_mtr_utc_001\":0,\"device_mtr_temp_001\":300,\"device_mtr_mom_001\":0,\"device_mtr_utc_002\":0,\"device_mtr_temp_002\":300,\"device_mtr_mom_002\":0,\"device_cpu_utc_000\":0,\"device_cpu_temp_000\":300,\"device_cpu_gib_000\":0,\"device_cpu_load_000\":0,\"device_cpu_boot_count_000\":0,\"device_cpu_utc_001\":0,\"device_cpu_temp_001\":300,\"device_cpu_gib_001\":0,\"device_cpu_load_001\":0,\"device_cpu_boot_count_001\":0,\"device_cpu_utc_002\":0,\"device_cpu_temp_002\":300,\"device_cpu_gib_002\":0,\"device_cpu_load_002\":0,\"device_cpu_boot_count_002\":0,\"device_pvstrg_utc_000\":0,\"device_pvstrg_temp_000\":300,\"device_pvstrg_power_000\":0,\"device_pvstrg_utc_001\":0,\"device_pvstrg_temp_001\":300,\"device_pvstrg_power_001\":0,\"device_pvstrg_utc_002\":0,\"device_pvstrg_temp_002\":300,\"device_pvstrg_power_002\":0,\"device_pvstrg_utc_003\":0,\"device_pvstrg_temp_003\":300,\"device_pvstrg_power_003\":0,\"device_batt_utc_000\":0,\"device_batt_temp_000\":300,\"device_batt_amp_000\":0,\"device_batt_volt_000\":7.5999999,\"device_batt_power_000\":0,\"device_batt_charge_000\":1.3,\"device_batt_percentage_000\":0,\"device_batt_time_remaining_000\":0,\"device_tsen_utc_000\":0,\"device_tsen_temp_000\":300,\"device_tsen_utc_001\":0,\"device_tsen_temp_001\":300,\"device_tsen_utc_002\":0,\"device_tsen_temp_002\":300,\"device_tsen_utc_003\":0,\"device_tsen_temp_003\":300,\"device_swch_utc_000\":0,\"device_swch_temp_000\":300,\"device_swch_utc_001\":0,\"device_swch_temp_001\":300,\"device_swch_utc_002\":0,\"device_swch_temp_002\":300,\"device_swch_utc_003\":0,\"device_swch_temp_003\":300,\"device_swch_utc_004\":0,\"device_swch_temp_004\":300,\"device_swch_utc_005\":0,\"device_swch_temp_005\":300,\"device_swch_utc_006\":0,\"device_swch_temp_006\":300,\"device_swch_utc_007\":0,\"device_swch_temp_007\":300,\"device_swch_utc_008\":0,\"device_swch_temp_008\":300,\"device_swch_utc_009\":0,\"device_swch_temp_009\":300,\"device_stt_utc_000\":0,\"device_stt_temp_000\":300,\"device_stt_att_000\":{\"d\":{\"x\":0,\"y\":0,\"z\":0},\"w\":0},\"device_stt_omega_000\":[0,0,0],\"device_bus_utc_000\":0,\"device_bus_temp_000\":300,\"device_bus_utc_000\":0,\"device_bus_energy_000\":0,\"device_bus_amp_000\":0,\"device_bus_volt_000\":12,\"device_bus_power_000\":0,\"device_bus_utc_001\":0,\"device_bus_temp_001\":300,\"device_bus_utc_001\":0,\"device_bus_energy_001\":0,\"device_bus_amp_001\":0,\"device_bus_volt_001\":5,\"device_bus_power_001\":0,\"device_bus_utc_002\":0,\"device_bus_temp_002\":300,\"device_bus_utc_002\":0,\"device_bus_energy_002\":0,\"device_bus_amp_002\":0,\"device_bus_volt_002\":3.3,\"device_bus_power_002\":0,\"device_bus_utc_003\":0,\"device_bus_temp_003\":300,\"device_bus_utc_003\":0,\"device_bus_energy_003\":0,\"device_bus_amp_003\":0,\"device_bus_volt_003\":8.3000002,\"device_bus_power_003\":0}";
-    cosmosstruc *struc = json_create();
-    //std::string soh_string = "{\"device_cpu_utc_000\":59015.993214190625,\"device_cpu_maxgib_000\":22.603275,\"device_cpu_gib_000\":11.20945,\"memory_utilization_000\":0.4959214812787105,\"cpu_utilization_000\":1.809999942779541}";
-
-    std::string r(request);
-    cout << r << endl;
-    int32_t s = json_setup_node(string_split(request, " ")[1], struc);
-
-    sprintf(response, json_list_of_all(struc).c_str());
-//pieces (50) -> click on another list, gives you name
-//        device_cpu_000_...
-//        cpu type, know idx 000, assembled names
-
     return 0;
 }
