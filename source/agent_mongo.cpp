@@ -315,7 +315,7 @@ int main(int argc, char** argv)
         std::string message = request->content.string();
 
         // write to cosmos/nodes/node/temp/exec/node_mjd.event
-        auto collection = connection_ring[realm]["commands:" + request->path_match[1].str()];
+        auto collection = connection_ring[realm][request->path_match[1].str() + ":commands"];
 
         try
         {
@@ -351,7 +351,7 @@ int main(int argc, char** argv)
         std::string command = json_extract_namedmember(message, "command");
 
         // write to cosmos/nodes/node/temp/exec/node_mjd.event
-        auto collection = connection_ring[realm]["commands:" + request->path_match[1].str()];
+        auto collection = connection_ring[realm][request->path_match[1].str() + ":commands"];
 
         try
         {
@@ -375,7 +375,7 @@ int main(int argc, char** argv)
         event_name.pop_back();
 
         // write to cosmos/nodes/node/temp/exec/node_mjd.event
-        auto collection = connection_ring[realm]["commands:" + request->path_match[1].str()];
+        auto collection = connection_ring[realm][request->path_match[1].str() + ":commands"];
 
         try
         {

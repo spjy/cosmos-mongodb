@@ -513,7 +513,7 @@ void process_files(mongocxx::client &connection_file, std::string &realm, std::v
                                 {
                                     // Get the node's UTC
                                     std::string node_utc = json_extract_namedmember(line, "node_utc");
-                                    std::string node_type = agent_type + ":" + node_path.back();
+                                    std::string node_type = node_path.back() + ":" + agent_type;
 
                                     if (node_utc.length() > 0)
                                     {
