@@ -518,7 +518,8 @@ void process_files(mongocxx::client &connection_file, std::string &realm, std::v
                                     if (node_utc.length() > 0)
                                     {
                                         auto collection = connection_file[realm][node_type];
-                                        auto any_collection = connection_file[realm]["any:soh"];
+                                        auto any_collection = connection_file[realm]["any"];
+                                        auto any_soh_collection = connection_file[realm]["any:soh"];
                                         stdx::optional<bsoncxx::document::value> document;
 
                                         // Query the database for the node_utc.
@@ -560,6 +561,7 @@ void process_files(mongocxx::client &connection_file, std::string &realm, std::v
                                                     // Insert BSON object into collection specified
                                                     auto insert = collection.insert_one(value);
                                                     auto any_insert = any_collection.insert_one(value);
+                                                    auto any_soh_insert = any_soh_collection.insert_one(value);
 
                                                     send_live("File", node_type, line);
                                                 }
