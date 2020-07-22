@@ -62,6 +62,10 @@ int main(int argc, char** argv)
     std::string mongo_server = "mongodb://localhost:27017/";
     std::string realm = "null";
 
+    char hostname[60];
+    gethostname(hostname, sizeof (hostname));
+    std::string node = hostname;
+
     // Get command line arguments for including/excluding certain nodes
     // If include nodes by file, include path to file through --whitelist_file_path
     for (int i = 1; i < argc; i++) {
@@ -90,6 +94,9 @@ int main(int argc, char** argv)
             }
             else if (strncmp(argv[i], "--realm", sizeof(argv[i]) / sizeof(argv[i][0])) == 0) {
                 realm = argv[i + 1];
+            }
+            else if (strncmp(argv[i], "--node", sizeof(argv[i]) / sizeof(argv[i][0])) == 0) {
+                node = argv[i + 1];
             }
         }
     }
@@ -155,8 +162,9 @@ int main(int argc, char** argv)
     cout << "File walk nodes folder: " << file_walk_path << endl;
     cout << "Agent path: " << agent_path << endl;
     cout << "Shell path: " << shell << endl;
+    cout << "Node: " << node << endl;
 
-    agent = new Agent("", "mongo");
+    agent = new Agent(node, "mongo");
 
     if (agent->cinfo == nullptr) {
         cout << "Unable to start agent_mongo" << endl;
