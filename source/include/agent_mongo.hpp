@@ -518,7 +518,7 @@ void process_files(mongocxx::client &connection_file, std::string &realm, std::v
                                     if (node_utc.length() > 0)
                                     {
                                         auto collection = connection_file[realm][node_type];
-                                        auto any_collection = connection_file[realm]["any"];
+                                        auto any_collection = connection_file[realm]["any:soh"];
                                         stdx::optional<bsoncxx::document::value> document;
 
                                         // Query the database for the node_utc.
