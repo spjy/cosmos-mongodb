@@ -756,7 +756,7 @@ void process_commands(mongocxx::client &connection_file, std::string &realm, std
 
                                             stdx::optional<bsoncxx::document::value> document = collection.find_one_and_replace(query, bsoncxx::from_json(line));
 
-                                            if (document) {
+                                            if (!document) {
                                                 collection.insert_one(bsoncxx::from_json(line));
                                             }
 
