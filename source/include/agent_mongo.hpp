@@ -712,7 +712,7 @@ void process_commands(mongocxx::client &connection_file, std::string &realm, std
 
                                     if (event_name.length() > 0)
                                     {
-                                        auto collection = connection_file[realm]["executed:" + node_path.back()];
+                                        auto collection = connection_file[realm][node_path.back() + ":executed"];
                                         stdx::optional<bsoncxx::document::value> document;
 
                                         // Query the database for the utc and name, then replace to add the event_utcexec
@@ -751,7 +751,7 @@ void process_commands(mongocxx::client &connection_file, std::string &realm, std
 
                                             std::string type = "event";
 
-                                            std::string node_type = "executed:" + node_path.back();
+                                            std::string node_type = node_path.back() + ":executed";
                                             send_live("File", node_type, line);
 
                                             stdx::optional<bsoncxx::document::value> document = collection.find_one_and_replace(query, bsoncxx::from_json(line));
