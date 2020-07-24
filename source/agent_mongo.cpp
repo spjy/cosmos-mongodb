@@ -1118,7 +1118,7 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
 
                     std::string node_string = bsoncxx::string::to_string(node.get_utf8().value);
 
-                    if (count.get_double().value != 0 && whitelisted_node(included_nodes, excluded_nodes, node_string))
+                    if (count.get_int32().value != 0 && whitelisted_node(included_nodes, excluded_nodes, node_string))
                     {
                         response.insert(response.size(), "{\"" + bsoncxx::string::to_string(node.get_utf8().value) + "\": [");
 
@@ -1154,11 +1154,11 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
                                 };
 
                                 response.insert(response.size(),
-                                    "{\"tx_id\": " + std::to_string(tx_id.get_double().value) +
+                                    "{\"tx_id\": " + std::to_string(tx_id.get_int32().value) +
                                     ", \"agent\": \"" + bsoncxx::string::to_string(agent.get_utf8().value) +
                                     ", \"name\": \"" + bsoncxx::string::to_string(name.get_utf8().value) +
-                                    ", \"size\": " + std::to_string(size.get_double().value) +
-                                    ", \"bytes\": " + std::to_string(bytes.get_double().value) +
+                                    ", \"size\": " + std::to_string(size.get_int32().value) +
+                                    ", \"bytes\": " + std::to_string(bytes.get_int32().value) +
                                     "},");
                             }
                         }
@@ -1175,6 +1175,7 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
         }
         catch (const bsoncxx::exception &err)
         {
+            cout << err.what() << endl;
             cout << "WS File Live: Error converting to BSON from JSON" << endl;
         }
 
@@ -1220,7 +1221,7 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
 
                     std::string node_string = bsoncxx::string::to_string(node.get_utf8().value);
 
-                    if (count.get_double().value != 0 && whitelisted_node(included_nodes, excluded_nodes, node_string))
+                    if (count.get_int32().value != 0 && whitelisted_node(included_nodes, excluded_nodes, node_string))
                     {
                         response.insert(response.size(), "{\"" + bsoncxx::string::to_string(node.get_utf8().value) + "\": [");
 
@@ -1256,11 +1257,11 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
                                 };
 
                                 response.insert(response.size(),
-                                    "{\"tx_id\": " + std::to_string(tx_id.get_double().value) +
+                                    "{\"tx_id\": " + std::to_string(tx_id.get_int32().value) +
                                     ", \"agent\": \"" + bsoncxx::string::to_string(agent.get_utf8().value) +
                                     ", \"name\": \"" + bsoncxx::string::to_string(name.get_utf8().value) +
-                                    ", \"size\": " + std::to_string(size.get_double().value) +
-                                    ", \"bytes\": " + std::to_string(bytes.get_double().value) +
+                                    ", \"size\": " + std::to_string(size.get_int32().value) +
+                                    ", \"bytes\": " + std::to_string(bytes.get_int32().value) +
                                     "},");
                             }
                         }
