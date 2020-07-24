@@ -1175,8 +1175,7 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
         }
         catch (const bsoncxx::exception &err)
         {
-            cout << err.what() << endl;
-            cout << "WS File Live: Error converting to BSON from JSON" << endl;
+            cout << "WS File Live: " << err.what() << endl;
         }
 
         if (response.back() == ',')
@@ -1278,7 +1277,7 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
         }
         catch (const bsoncxx::exception &err)
         {
-            cout << "WS File Live: Error converting to BSON from JSON" << endl;
+            cout << "WS File Live: " << err.what() << endl;
         }
 
         if (response.back() == ',')
@@ -1291,6 +1290,7 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
         if (previousFiles != response) {
             client.on_open = [&response](std::shared_ptr<WsClient::Connection> connection)
             {
+                cout << "WS File Live: Sending message" << endl;
                 connection->send(response);
 
                 connection->send_close(1000);
@@ -1434,7 +1434,7 @@ void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<s
         }
         catch (const bsoncxx::exception &err)
         {
-            cout << "WS Agent Live: Error converting to BSON from JSON" << endl;
+            cout << "WS Agent Live: " << err.what() << endl;
         }
 
         COSMOS_SLEEP(5);
