@@ -42,7 +42,7 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &realm, st
 void file_walk(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
 void soh_walk(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
 int32_t request_insert(char* request, char* response, Agent* agent);
-
+int32_t request_cinfo(char* request, char* response, Agent* agent);
 static thread collect_data_thread;
 static thread file_walk_thread;
 static thread soh_walk_thread;
@@ -62,6 +62,10 @@ int main(int argc, char** argv)
     std::string shell = "/bin/bash";
     std::string mongo_server = "mongodb://localhost:27017/";
     std::string realm = "null";
+
+    char hostname[60];
+    gethostname(hostname, sizeof (hostname));
+    std::string node = hostname;
 
     // Get command line arguments for including/excluding certain nodes
     // If include nodes by file, include path to file through --whitelist_file_path
@@ -91,6 +95,9 @@ int main(int argc, char** argv)
             }
             else if (strncmp(argv[i], "--realm", sizeof(argv[i]) / sizeof(argv[i][0])) == 0) {
                 realm = argv[i + 1];
+            }
+            else if (strncmp(argv[i], "--node", sizeof(argv[i]) / sizeof(argv[i][0])) == 0) {
+                node = argv[i + 1];
             }
         }
     }
@@ -156,14 +163,14 @@ int main(int argc, char** argv)
     cout << "File walk nodes folder: " << file_walk_path << endl;
     cout << "Agent path: " << agent_path << endl;
     cout << "Shell path: " << shell << endl;
+    cout << "Node: " << node << endl;
 
-    agent = new Agent("", "mongo");
+    agent = new Agent(node, "mongo");
 
     if (agent->cinfo == nullptr) {
         cout << "Unable to start agent_mongo" << endl;
         exit(1);
     }
-
     // Connect to a MongoDB URI and establish connection
     mongocxx::client connection_ring {
         mongocxx::uri {
@@ -308,7 +315,7 @@ int main(int argc, char** argv)
         std::string message = request->content.string();
 
         // write to cosmos/nodes/node/temp/exec/node_mjd.event
-        auto collection = connection_ring[realm]["commands:" + request->path_match[1].str()];
+        auto collection = connection_ring[realm][request->path_match[1].str() + ":commands"];
 
         try
         {
@@ -344,7 +351,7 @@ int main(int argc, char** argv)
         std::string command = json_extract_namedmember(message, "command");
 
         // write to cosmos/nodes/node/temp/exec/node_mjd.event
-        auto collection = connection_ring[realm]["commands:" + request->path_match[1].str()];
+        auto collection = connection_ring[realm][request->path_match[1].str() + ":commands"];
 
         try
         {
@@ -368,7 +375,7 @@ int main(int argc, char** argv)
         event_name.pop_back();
 
         // write to cosmos/nodes/node/temp/exec/node_mjd.event
-        auto collection = connection_ring[realm]["commands:" + request->path_match[1].str()];
+        auto collection = connection_ring[realm][request->path_match[1].str() + ":commands"];
 
         try
         {
@@ -764,6 +771,7 @@ int main(int argc, char** argv)
     if ((iretn=agent->add_request("insert", request_insert, "db collection entry_json", "inserts entry_json to collection in db")))
         exit (iretn);
 
+agent->add_request("cinfo", request_cinfo, "cinfo", "get cinfo info");
     // Create a thread for the data collection and service requests.
     collect_data_thread = thread(collect_data_loop, std::ref(connection_ring), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes));
 //    file_walk_thread = thread(file_walk, std::ref(connection_file), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path));
@@ -1348,5 +1356,28 @@ int32_t request_insert(char* request, char* response, Agent* agent) {
         cout << "Request: Error converting to BSON from JSON ("<<entry<<")" << endl;
         sprintf(response,"Error converting to BSON from JSON.");
     }
+    return 0;
+}
+
+int32_t request_cinfo(char* request, char* response, Agent* agent) {
+    std::string soh_string = "{\"device_bcreg_volt_000\": 7.8933001,\"device_bcreg_amp_000\": 0.0029325001}";
+    cosmosstruc *struc = json_create();
+    //std::string soh_string = "{\"device_cpu_utc_000\":59015.993214190625,\"device_cpu_maxgib_000\":22.603275,\"device_cpu_gib_000\":11.20945,\"memory_utilization_000\":0.4959214812787105,\"cpu_utilization_000\":1.809999942779541}";
+
+    std::string r(request);
+    int32_t s = json_setup_node("neutron1", struc);
+
+    cout << s;
+
+    s = json_parse(soh_string, struc);
+
+    cout << s;
+
+    cout << "omg";
+
+//pieces (50) -> click on another list, gives you name
+//        device_cpu_000_...
+//        cpu type, know idx 000, assembled names
+
     return 0;
 }

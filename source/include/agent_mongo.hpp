@@ -514,12 +514,13 @@ void process_files(mongocxx::client &connection_file, std::string &realm, std::v
                                 {
                                     // Get the node's UTC
                                     std::string node_utc = json_extract_namedmember(line, "node_utc");
-                                    std::string node_type = agent_type + ":" + node_path.back();
+                                    std::string node_type = node_path.back() + ":" + agent_type;
 
                                     if (node_utc.length() > 0)
                                     {
                                         auto collection = connection_file[realm][node_type];
                                         auto any_collection = connection_file[realm]["any"];
+                                        auto any_soh_collection = connection_file[realm]["any:soh"];
                                         stdx::optional<bsoncxx::document::value> document;
 
                                         // Query the database for the node_utc.
@@ -561,6 +562,7 @@ void process_files(mongocxx::client &connection_file, std::string &realm, std::v
                                                     // Insert BSON object into collection specified
                                                     auto insert = collection.insert_one(value);
                                                     auto any_insert = any_collection.insert_one(value);
+                                                    auto any_soh_insert = any_soh_collection.insert_one(value);
 
                                                     send_live("File", node_type, line);
                                                 }
@@ -711,7 +713,7 @@ void process_commands(mongocxx::client &connection_file, std::string &realm, std
 
                                     if (event_name.length() > 0)
                                     {
-                                        auto collection = connection_file[realm]["executed:" + node_path.back()];
+                                        auto collection = connection_file[realm][node_path.back() + ":executed"];
                                         stdx::optional<bsoncxx::document::value> document;
 
                                         // Query the database for the utc and name, then replace to add the event_utcexec
@@ -750,12 +752,12 @@ void process_commands(mongocxx::client &connection_file, std::string &realm, std
 
                                             std::string type = "event";
 
-                                            std::string node_type = "executed:" + node_path.back();
+                                            std::string node_type = node_path.back() + ":executed";
                                             send_live("File", node_type, line);
 
                                             stdx::optional<bsoncxx::document::value> document = collection.find_one_and_replace(query, bsoncxx::from_json(line));
 
-                                            if (document) {
+                                            if (!document) {
                                                 collection.insert_one(bsoncxx::from_json(line));
                                             }
 
