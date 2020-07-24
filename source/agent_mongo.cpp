@@ -778,7 +778,7 @@ agent->add_request("cinfo", request_cinfo, "cinfo", "get cinfo info");
     process_files_thread = thread(process_files, std::ref(connection_file), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "soh");
     process_commands_thread = thread(process_commands, std::ref(connection_file), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "exec");
     maintain_agent_list_thread = thread(maintain_agent_list, std::ref(included_nodes), std::ref(excluded_nodes), std::ref(agent_path), std::ref(shell));
-    maintain_file_list_thread = thread(maintain_file_list, std::ref(included_nodes), std::ref(agent_path), std::ref(shell));
+    maintain_file_list_thread = thread(maintain_file_list, std::ref(included_nodes), std::ref(excluded_nodes), std::ref(agent_path), std::ref(shell), node);
 
     while(agent->running()) {
         // Sleep for 1 sec
@@ -1073,229 +1073,223 @@ void file_walk(mongocxx::client &connection_file, std::string &realm, std::vecto
     }
 }
 
-void maintain_file_list(std::vector<std::string> &included_nodes, std::string &agent_path, std::string &shell) {
+void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &agent_path, std::string &shell, std::string hostnode) {
     std::string previousFiles;
 
     while (agent->running())
     {
         std::string list;
-        std::string response = "{\"node_type\": \"file\", ";
+        std::string response = "{\"node_type\": \"file\", \"outgoing\": [";
 
         WsClient client("localhost:8081/live/file_list");
 
-        std::for_each(included_nodes.begin(), included_nodes.end(), [&list, &response, &agent_path, &shell](const std::string &item)
+        list = execute("\"" + agent_path + " " + hostnode + " file list_outgoing_json\"", shell);
+
+        try
         {
-            response.insert(response.size(), "\"" + item + "\": {\"outgoing\": [");
+            bsoncxx::document::value json = bsoncxx::from_json(list);
+            bsoncxx::document::view opt { json.view() };
 
-            list = execute("\"" + agent_path + " " + item + " file list_outgoing_json\"", shell);
-
-            try
+            bsoncxx::document::element outgoing
             {
-                bsoncxx::document::value json = bsoncxx::from_json(list);
-                bsoncxx::document::view opt { json.view() };
+                opt["output"].get_document().view()["outgoing"]
+            };
 
-                bsoncxx::document::element outgoing
+            bsoncxx::array::view agent_file_array {outgoing.get_array().value};
+
+            for (bsoncxx::array::element e : agent_file_array)
+            {
+                if (e)
                 {
-                    opt["output"].get_document().view()["outgoing"]
-                };
-
-                bsoncxx::array::view agent_file_array {outgoing.get_array().value};
-
-                for (bsoncxx::array::element e : agent_file_array)
-                {
-                    if (e)
+                    bsoncxx::document::element node
                     {
-                        bsoncxx::document::element node
+                        e.get_document().view()["node"]
+                    };
+
+                    bsoncxx::document::element count
+                    {
+                        e.get_document().view()["count"]
+                    };
+
+                    bsoncxx::document::element files
+                    {
+                        e.get_document().view()["file"]
+                    };
+
+                    std::string node_string = bsoncxx::string::to_string(node.get_utf8().value);
+
+                    if (count.get_double().value != 0 && whitelisted_node(included_nodes, excluded_nodes, node_string))
+                    {
+                        response.insert(response.size(), "{\"" + bsoncxx::string::to_string(node.get_utf8().value) + "\": [");
+
+                        bsoncxx::array::view node_files {files.get_array().value};
+
+                        for (bsoncxx::array::element e : node_files)
                         {
-                            e.get_document().view()["node"]
-                        };
-
-                        bsoncxx::document::element count
-                        {
-                            e.get_document().view()["count"]
-                        };
-
-                        bsoncxx::document::element files
-                        {
-                            e.get_document().view()["file"]
-                        };
-
-                        if (count.get_double().value != 0)
-                        {
-                            response.insert(response.size(), "{\"" + bsoncxx::string::to_string(node.get_utf8().value) + "\": [");
-
-                            bsoncxx::array::view node_files {files.get_array().value};
-
-                            for (bsoncxx::array::element e : node_files)
+                            if (e)
                             {
-                                if (e)
+                                bsoncxx::document::element tx_id
                                 {
-                                    bsoncxx::document::element tx_id
-                                    {
-                                        e.get_document().view()["tx_id"]
-                                    };
+                                    e.get_document().view()["tx_id"]
+                                };
 
-                                    bsoncxx::document::element agent
-                                    {
-                                        e.get_document().view()["agent"]
-                                    };
+                                bsoncxx::document::element agent
+                                {
+                                    e.get_document().view()["agent"]
+                                };
 
-                                    bsoncxx::document::element name
-                                    {
-                                        e.get_document().view()["name"]
-                                    };
+                                bsoncxx::document::element name
+                                {
+                                    e.get_document().view()["name"]
+                                };
 
-                                    bsoncxx::document::element size
-                                    {
-                                        e.get_document().view()["size"]
-                                    };
+                                bsoncxx::document::element size
+                                {
+                                    e.get_document().view()["size"]
+                                };
 
-                                    bsoncxx::document::element bytes
-                                    {
-                                        e.get_document().view()["bytes"]
-                                    };
+                                bsoncxx::document::element bytes
+                                {
+                                    e.get_document().view()["bytes"]
+                                };
 
-                                    response.insert(response.size(),
-                                        "{\"tx_id\": " + std::to_string(tx_id.get_double().value) +
-                                        ", \"agent\": \"" + bsoncxx::string::to_string(agent.get_utf8().value) +
-                                        ", \"name\": \"" + bsoncxx::string::to_string(name.get_utf8().value) +
-                                        ", \"size\": " + std::to_string(size.get_double().value) +
-                                        ", \"bytes\": " + std::to_string(bytes.get_double().value) +
-                                        "},");
-                                }
+                                response.insert(response.size(),
+                                    "{\"tx_id\": " + std::to_string(tx_id.get_double().value) +
+                                    ", \"agent\": \"" + bsoncxx::string::to_string(agent.get_utf8().value) +
+                                    ", \"name\": \"" + bsoncxx::string::to_string(name.get_utf8().value) +
+                                    ", \"size\": " + std::to_string(size.get_double().value) +
+                                    ", \"bytes\": " + std::to_string(bytes.get_double().value) +
+                                    "},");
                             }
-
-                            if (response.back() == ',')
-                            {
-                                response.pop_back();
-                            }
-
-                            response.insert(response.size(), "]},");
                         }
+
+                        if (response.back() == ',')
+                        {
+                            response.pop_back();
+                        }
+
+                        response.insert(response.size(), "]},");
                     }
                 }
             }
-            catch (const bsoncxx::exception &err)
-            {
-                cout << "WS File Live: Error converting to BSON from JSON" << endl;
-            }
-
-            if (response.back() == ',')
-            {
-                response.pop_back();
-            }
-
-            response.insert(response.size(), "], \"incoming\": [");
-
-            list = execute("\"" + agent_path + " " + item + " file list_incoming_json\"", shell);
-
-            try
-            {
-                bsoncxx::document::value json = bsoncxx::from_json(list);
-                bsoncxx::document::view opt { json.view() };
-
-                bsoncxx::document::element incoming
-                {
-                    opt["output"].get_document().view()["incoming"]
-                };
-
-                bsoncxx::array::view agent_file_array {incoming.get_array().value};
-
-                for (bsoncxx::array::element e : agent_file_array)
-                {
-                    if (e)
-                    {
-                        bsoncxx::document::element node
-                        {
-                            e.get_document().view()["node"]
-                        };
-
-                        bsoncxx::document::element count
-                        {
-                            e.get_document().view()["count"]
-                        };
-
-                        bsoncxx::document::element files
-                        {
-                            e.get_document().view()["file"]
-                        };
-
-                        if (count.get_double().value != 0)
-                        {
-                            response.insert(response.size(), "{\"" + bsoncxx::string::to_string(node.get_utf8().value) + "\": [");
-
-                            bsoncxx::array::view node_files {files.get_array().value};
-
-                            for (bsoncxx::array::element e : node_files)
-                            {
-                                if (e)
-                                {
-                                    bsoncxx::document::element tx_id
-                                    {
-                                        e.get_document().view()["tx_id"]
-                                    };
-
-                                    bsoncxx::document::element agent
-                                    {
-                                        e.get_document().view()["agent"]
-                                    };
-
-                                    bsoncxx::document::element name
-                                    {
-                                        e.get_document().view()["name"]
-                                    };
-
-                                    bsoncxx::document::element size
-                                    {
-                                        e.get_document().view()["size"]
-                                    };
-
-                                    bsoncxx::document::element bytes
-                                    {
-                                        e.get_document().view()["bytes"]
-                                    };
-
-                                    response.insert(response.size(),
-                                        "{\"tx_id\": " + std::to_string(tx_id.get_double().value) +
-                                        ", \"agent\": \"" + bsoncxx::string::to_string(agent.get_utf8().value) +
-                                        ", \"name\": \"" + bsoncxx::string::to_string(name.get_utf8().value) +
-                                        ", \"size\": " + std::to_string(size.get_double().value) +
-                                        ", \"bytes\": " + std::to_string(bytes.get_double().value) +
-                                        "},");
-                                }
-                            }
-
-                            if (response.back() == ',')
-                            {
-                                response.pop_back();
-                            }
-
-                            response.insert(response.size(), "]},");
-                        }
-                    }
-                }
-            }
-            catch (const bsoncxx::exception &err)
-            {
-                cout << "WS File Live: Error converting to BSON from JSON" << endl;
-            }
-        });
+        }
+        catch (const bsoncxx::exception &err)
+        {
+            cout << "WS File Live: Error converting to BSON from JSON" << endl;
+        }
 
         if (response.back() == ',')
         {
             response.pop_back();
         }
 
-        response.insert(response.size(), "]}}");
+        response.insert(response.size(), "], \"incoming\": [");
+
+        list = execute("\"" + agent_path + " " + hostnode + " file list_incoming_json\"", shell);
+
+        try
+        {
+            bsoncxx::document::value json = bsoncxx::from_json(list);
+            bsoncxx::document::view opt { json.view() };
+
+            bsoncxx::document::element incoming
+            {
+                opt["output"].get_document().view()["incoming"]
+            };
+
+            bsoncxx::array::view agent_file_array {incoming.get_array().value};
+
+            for (bsoncxx::array::element e : agent_file_array)
+            {
+                if (e)
+                {
+                    bsoncxx::document::element node
+                    {
+                        e.get_document().view()["node"]
+                    };
+
+                    bsoncxx::document::element count
+                    {
+                        e.get_document().view()["count"]
+                    };
+
+                    bsoncxx::document::element files
+                    {
+                        e.get_document().view()["file"]
+                    };
+
+                    std::string node_string = bsoncxx::string::to_string(node.get_utf8().value);
+
+                    if (count.get_double().value != 0 && whitelisted_node(included_nodes, excluded_nodes, node_string))
+                    {
+                        response.insert(response.size(), "{\"" + bsoncxx::string::to_string(node.get_utf8().value) + "\": [");
+
+                        bsoncxx::array::view node_files {files.get_array().value};
+
+                        for (bsoncxx::array::element e : node_files)
+                        {
+                            if (e)
+                            {
+                                bsoncxx::document::element tx_id
+                                {
+                                    e.get_document().view()["tx_id"]
+                                };
+
+                                bsoncxx::document::element agent
+                                {
+                                    e.get_document().view()["agent"]
+                                };
+
+                                bsoncxx::document::element name
+                                {
+                                    e.get_document().view()["name"]
+                                };
+
+                                bsoncxx::document::element size
+                                {
+                                    e.get_document().view()["size"]
+                                };
+
+                                bsoncxx::document::element bytes
+                                {
+                                    e.get_document().view()["bytes"]
+                                };
+
+                                response.insert(response.size(),
+                                    "{\"tx_id\": " + std::to_string(tx_id.get_double().value) +
+                                    ", \"agent\": \"" + bsoncxx::string::to_string(agent.get_utf8().value) +
+                                    ", \"name\": \"" + bsoncxx::string::to_string(name.get_utf8().value) +
+                                    ", \"size\": " + std::to_string(size.get_double().value) +
+                                    ", \"bytes\": " + std::to_string(bytes.get_double().value) +
+                                    "},");
+                            }
+                        }
+
+                        if (response.back() == ',')
+                        {
+                            response.pop_back();
+                        }
+
+                        response.insert(response.size(), "]},");
+                    }
+                }
+            }
+        }
+        catch (const bsoncxx::exception &err)
+        {
+            cout << "WS File Live: Error converting to BSON from JSON" << endl;
+        }
+
+        if (response.back() == ',')
+        {
+            response.pop_back();
+        }
+
+        response.insert(response.size(), "]}");
 
         if (previousFiles != response) {
-            client.on_open = [&response, &included_nodes](std::shared_ptr<WsClient::Connection> connection)
+            client.on_open = [&response](std::shared_ptr<WsClient::Connection> connection)
             {
-                cout << response << endl;
-                std::for_each(included_nodes.begin(), included_nodes.end(), [](const std::string &item)
-                {
-                   cout << item << endl;
-                });
                 connection->send(response);
 
                 connection->send_close(1000);
