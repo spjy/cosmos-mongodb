@@ -1113,7 +1113,7 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
 
                     bsoncxx::document::element files
                     {
-                        e.get_document().view()["file"]
+                        e.get_document().view()["files"]
                     };
 
                     std::string node_string = bsoncxx::string::to_string(node.get_utf8().value);
@@ -1216,7 +1216,7 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
 
                     bsoncxx::document::element files
                     {
-                        e.get_document().view()["file"]
+                        e.get_document().view()["files"]
                     };
 
                     std::string node_string = bsoncxx::string::to_string(node.get_utf8().value);
