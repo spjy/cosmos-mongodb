@@ -1084,11 +1084,11 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
     while (agent->running())
     {
         std::string list;
-        std::string response = "{\"node_type\": \"file\", \"outgoing\": [";
+        std::string response = "{\"node_type\": \"file\", \"outgoing\": {";
 
         WsClient client("localhost:8081/live/file_list");
 
-        list = execute("\"" + agent_path + " " + hostnode + " file_spencer list_outgoing_json\"", shell);
+        list = execute("\"" + agent_path + " " + hostnode + " file list_outgoing_json\"", shell);
 
         try
         {
@@ -1125,7 +1125,7 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
 
                     if (count.get_int32().value != 0 && whitelisted_node(included_nodes, excluded_nodes, node_string))
                     {
-                        response.insert(response.size(), "{\"" + bsoncxx::string::to_string(node.get_utf8().value) + "\":[");
+                        response.insert(response.size(), "\"" + bsoncxx::string::to_string(node.get_utf8().value) + "\":[");
 
                         bsoncxx::array::view node_files {files.get_array().value};
 
@@ -1173,7 +1173,7 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
                             response.pop_back();
                         }
 
-                        response.insert(response.size(), "]},");
+                        response.insert(response.size(), "],");
                     }
                 }
             }
@@ -1188,9 +1188,9 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
             response.pop_back();
         }
 
-        response.insert(response.size(), "], \"incoming\": [");
+        response.insert(response.size(), "}, \"incoming\": {");
 
-        list = execute("\"" + agent_path + " " + hostnode + " file_spencer list_incoming_json\"", shell);
+        list = execute("\"" + agent_path + " " + hostnode + " file list_incoming_json\"", shell);
 
         try
         {
@@ -1227,7 +1227,7 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
 
                     if (count.get_int32().value != 0 && whitelisted_node(included_nodes, excluded_nodes, node_string))
                     {
-                        response.insert(response.size(), "{\"" + bsoncxx::string::to_string(node.get_utf8().value) + "\":[");
+                        response.insert(response.size(), "\"" + bsoncxx::string::to_string(node.get_utf8().value) + "\":[");
 
                         bsoncxx::array::view node_files {files.get_array().value};
 
@@ -1275,7 +1275,7 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
                             response.pop_back();
                         }
 
-                        response.insert(response.size(), "]},");
+                        response.insert(response.size(), "],");
                     }
                 }
             }
@@ -1290,36 +1290,32 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
             response.pop_back();
         }
 
-        response.insert(response.size(), "]}");
+        response.insert(response.size(), "}}");
 
-        cout << response << endl;
+        client.on_open = [&response](std::shared_ptr<WsClient::Connection> connection)
+        {
+            cout << "WS File Live: Sending message" << endl;
+            connection->send(response);
 
-        if (previousFiles != response) {
-            client.on_open = [&response](std::shared_ptr<WsClient::Connection> connection)
-            {
-                cout << "WS File Live: Sending message" << endl;
-                connection->send(response);
+            connection->send_close(1000);
+        };
 
-                connection->send_close(1000);
-            };
+        client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
+        {
+            if (status != 1000) {
+                cout << "WS Live: Closed connection with status code " << status << endl;
+            }
+        };
 
-            client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
-            {
-                if (status != 1000) {
-                    cout << "WS Live: Closed connection with status code " << status << endl;
-                }
-            };
+        // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
+        client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
+        {
+            cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
+        };
 
-            // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
-            client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
-            {
-                cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
-            };
+        client.start();
 
-            client.start();
-
-            previousFiles = response;
-        }
+        previousFiles = response;
 
         COSMOS_SLEEP(5);
     }
