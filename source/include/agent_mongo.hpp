@@ -193,24 +193,24 @@ void send_live(const std::string type, std::string &node_type, std::string &line
 
     client.on_open = [type, &line, &node_type](std::shared_ptr<WsClient::Connection> connection)
     {
-	cout << type << ": Broadcasted adata for " << node_type << endl;
+        cout << type << ": Broadcasted adata for " << node_type << endl;
 
-	connection->send(line);
+        connection->send(line);
 
-	connection->send_close(1000);
+        connection->send_close(1000);
     };
 
     client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
     {
-	if (status != 1000) {
-	    cout << "WS Live: Closed connection with status code " << status << endl;
-	}
+        if (status != 1000) {
+            cout << "WS Live: Closed connection with status code " << status << endl;
+        }
     };
 
     // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
     client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
     {
-	cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
+        cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
     };
 
     client.start();
@@ -530,11 +530,11 @@ void process_files(mongocxx::client &connection_file, std::string &realm, std::v
                                         }
                                         catch (const mongocxx::query_exception &err)
                                         {
-                                            cout << "File: Logic error when querying occurred" << endl;
+                                            cout << "File: Logic error when querying occurred" << err.what() << endl;
                                         }
                                         catch (const bsoncxx::exception &err)
                                         {
-                                            cout << "File: Could not convert JSON" << endl;
+                                            cout << "File: Could not convert JSON" << err.what() << endl;
                                         }
 
                                         // Append node_type for live values
@@ -568,12 +568,12 @@ void process_files(mongocxx::client &connection_file, std::string &realm, std::v
                                                 }
                                                 catch (const mongocxx::bulk_write_exception &err)
                                                 {
-                                                    cout << "File: Error writing to database." << endl;
+                                                    cout << "File: Error writing to database." << err.what() << endl;
                                                 }
                                             }
                                             catch (const bsoncxx::exception &err)
                                             {
-                                                cout << "File: Error converting to BSON from JSON" << endl;
+                                                cout << "File: Error converting to BSON from JSON" << err.what() << endl;
                                             }
                                         }
                                     }
@@ -765,11 +765,11 @@ void process_commands(mongocxx::client &connection_file, std::string &realm, std
                                         }
                                         catch (const mongocxx::query_exception &err)
                                         {
-                                            cout << "File: Logic error when querying occurred" << endl;
+                                            cout << "File: Logic error when querying occurred" << err.what() << endl;
                                         }
                                         catch (const bsoncxx::exception &err)
                                         {
-                                            cout << "File: Could not convert JSON" << endl;
+                                            cout << "File: Could not convert JSON" << err.what() << endl;
                                         }
                                     }
                                 }

@@ -135,7 +135,7 @@ int main(int argc, char** argv)
                     excluded_nodes.push_back(bsoncxx::string::to_string(e.get_utf8().value));
                 }
             } catch (const bsoncxx::exception &err) {
-                cout << "WS Live: Error converting to BSON from JSON" << endl;
+                cout << "WS Live: Error converting to BSON from JSON" << err.what() << endl;
             }
         }
     }
@@ -609,7 +609,7 @@ int main(int argc, char** argv)
             }
 
             // Read namespace values
-            cosmosstruc *struc = json_create();
+            cosmosstruc *struc = json_init();
             int32_t s = json_setup_node(node_directory, struc);
 
             nodeproc_list << "}, \"values\":{";
@@ -822,54 +822,59 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &realm, st
                 std::string type = json_extract_namedmember(message.jdata, "agent_proc");
                 std::string ip = json_extract_namedmember(message.jdata, "agent_addr");
 
-                // Remove leading and trailing quotes around node
-                node.erase(0, 1);
-                node.pop_back();
+                if (!(node.empty()) && !(type.empty()) && !(ip.empty())) {
+                    // Remove leading and trailing quotes around node
+                    node.erase(0, 1);
+                    node.pop_back();
 
-                type.erase(0, 1);
-                type.pop_back();
+                    type.erase(0, 1);
+                    type.pop_back();
 
-                ip.erase(0, 1);
-                ip.pop_back();
+                    ip.erase(0, 1);
+                    ip.pop_back();
 
-                std::string node_type = node + ":" + type;
+                    std::string node_type = node + ":" + type;
 
-                // Connect to the database and store in the collection of the node name
-                if (whitelisted_node(included_nodes, excluded_nodes, node)) {
-                    auto collection = connection_ring[realm][node];
-                    auto any_collection = connection_ring[realm]["any"];
-                    std::string response;
-                    mongocxx::options::find options; // store by node
+                    // Connect to the database and store in the collection of the node name
+                    if (whitelisted_node(included_nodes, excluded_nodes, node)) {
+                        auto collection = connection_ring[realm][node];
+                        auto any_collection = connection_ring[realm]["any"];
+                        std::string response;
+                        mongocxx::options::find options; // store by node
 
-                    bsoncxx::document::view_or_value value;
+                        bsoncxx::document::view_or_value value;
 
-                    // Copy adata and manipulate string to add the agent_utc (date)
-                    std::string adata = message.adata;
-                    adata.pop_back();
-                    adata.insert(adata.size(), ", \"node_utc\": " + std::to_string(message.meta.beat.utc));
-                    adata.insert(adata.size(), ", \"node_type\": \"" + node_type + "\"");
-                    adata.insert(adata.size(), ", \"node_ip\": \"" + ip + "\"}");
+                        // Copy adata and manipulate string to add the agent_utc (date)
+                        std::string adata = message.adata;
 
-                    try {
-                        // Convert JSON into BSON object to prepare for database insertion
-                        value = bsoncxx::from_json(adata);
+                        if (!(adata.empty())) {
+                            adata.pop_back();
+                            adata.insert(adata.size(), ", \"node_utc\": " + std::to_string(message.meta.beat.utc));
+                            adata.insert(adata.size(), ", \"node_type\": \"" + node_type + "\"");
+                            adata.insert(adata.size(), ", \"node_ip\": \"" + ip + "\"}");
 
-                        try
-                        {
-                            // Insert BSON object into collection specified
-                            auto insert = collection.insert_one(value);
-                            auto any_insert = any_collection.insert_one(value);
+                            try {
+                                // Convert JSON into BSON object to prepare for database insertion
+                                value = bsoncxx::from_json(adata);
 
-                            cout << "WS Live: Inserted adata " << node_type << endl;
+                                try
+                                {
+                                    // Insert BSON object into collection specified
+                                    auto insert = collection.insert_one(value);
+                                    auto any_insert = any_collection.insert_one(value);
 
-                            if (type != "exec") {
-                                send_live("WS Live", realm, adata);
+                                    cout << "WS Live: Inserted adata " << node_type << endl;
+
+                                    if (type != "exec") {
+                                        send_live("WS Live", realm, adata);
+                                    }
+                                } catch (const mongocxx::bulk_write_exception &err) {
+                                    cout << "WS Live: " << err.what() << endl;
+                                }
+                            } catch (const bsoncxx::exception &err) {
+                            cout << "WS Live: " << err.what() << endl;
                             }
-                        } catch (const mongocxx::bulk_write_exception &err) {
-                            cout << "WS Live: Error writing to database." << endl;
                         }
-                    } catch (const bsoncxx::exception &err) {
-                        cout << "WS Live: Error converting to BSON from JSON" << endl;
                     }
                 }
             }
@@ -974,11 +979,11 @@ void file_walk(mongocxx::client &connection_file, std::string &realm, std::vecto
                                                 }
                                                 catch (const mongocxx::query_exception &err)
                                                 {
-                                                    cout << "File: Logic error when querying occurred" << endl;
+                                                    cout << "File: Logic error when querying occurred" << err.what() << endl;
                                                 }
                                                 catch (const bsoncxx::exception &err)
                                                 {
-                                                    cout << "File: Could not convert JSON" << endl;
+                                                    cout << "File: Could not convert JSON" << err.what() << endl;
                                                 }
 
                                                 // If an entry does not exist with node_utc, write the entry into the database
@@ -1000,12 +1005,12 @@ void file_walk(mongocxx::client &connection_file, std::string &realm, std::vecto
                                                         }
                                                         catch (const mongocxx::bulk_write_exception &err)
                                                         {
-                                                            cout << "File: Error writing to database." << endl;
+                                                            cout << "File: Error writing to database." << err.what() << endl;
                                                         }
                                                     }
                                                     catch (const bsoncxx::exception &err)
                                                     {
-                                                        cout << "File: Error converting to BSON from JSON" << endl;
+                                                        cout << "File: Error converting to BSON from JSON" << err.what() << endl;
                                                     }
                                                 }
                                             }
@@ -1033,12 +1038,12 @@ void file_walk(mongocxx::client &connection_file, std::string &realm, std::vecto
                                                         }
                                                         catch (const mongocxx::bulk_write_exception &err)
                                                         {
-                                                            cout << "File: Error writing to database." << endl;
+                                                            cout << "File: Error writing to database." << err.what() << endl;
                                                         }
                                                     }
                                                     catch (const bsoncxx::exception &err)
                                                     {
-                                                        cout << "File: Error converting to BSON from JSON" << endl;
+                                                        cout << "File: Error converting to BSON from JSON" << err.what() << endl;
                                                     }
 
                                                 }
@@ -1286,6 +1291,8 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
         }
 
         response.insert(response.size(), "]}");
+
+        cout << response << endl;
 
         if (previousFiles != response) {
             client.on_open = [&response](std::shared_ptr<WsClient::Connection> connection)
