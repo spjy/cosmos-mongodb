@@ -841,7 +841,6 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &realm, st
 
                         // Connect to the database and store in the collection of the node name
                         if (whitelisted_node(included_nodes, excluded_nodes, node)) {
-                            auto collection = connection_ring[realm][node];
                             auto any_collection = connection_ring[realm]["any"];
                             std::string response;
                             mongocxx::options::find options; // store by node
@@ -864,7 +863,6 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &realm, st
                                     try
                                     {
                                         // Insert BSON object into collection specified
-                                        auto insert = collection.insert_one(value);
                                         auto any_insert = any_collection.insert_one(value);
 
                                         cout << "WS Live: Inserted adata " << node_type << endl;
@@ -902,7 +900,6 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &realm, st
                     std::string node = json_extract_namedmember(response, "node_name");
 
                     if (whitelisted_node(included_nodes, excluded_nodes, node)) {
-                        auto collection = connection_ring[realm][node];
                         auto any_collection = connection_ring[realm]["any"];
                         try {
                             // Convert JSON into BSON object to prepare for database insertion
@@ -911,7 +908,6 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &realm, st
                             try
                             {
                                 // Insert BSON object into collection specified
-                                auto insert = collection.insert_one(value);
                                 auto any_insert = any_collection.insert_one(value);
 
                                 cout << "WS Live: Inserted adata " << node << endl;
