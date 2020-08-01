@@ -1135,11 +1135,6 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
 
     while (agent->running())
     {
-        cout << agent->agent_list[0].proc << endl;
-
-        for (beatstruc agent : agent->agent_list) {
-            cout << agent.proc << endl;
-        }
         std::string list;
         std::string response = "{\"node_type\": \"file\", \"outgoing\": {";
 
