@@ -524,7 +524,7 @@ void process_files(mongocxx::client &connection_file, std::string &realm, std::v
                                         // Query the database for the node_utc.
                                         try
                                         {
-                                            document = collection.find_one(bsoncxx::builder::basic::make_document(kvp("node_utc", stod(node_utc))));
+                                            document = any_collection.find_one(bsoncxx::builder::basic::make_document(kvp("node_utc", stod(node_utc))));
                                         }
                                         catch (const mongocxx::query_exception &err)
                                         {
