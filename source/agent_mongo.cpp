@@ -38,11 +38,10 @@ static mongocxx::instance instance
 
 std::string execute(std::string cmd, std::string shell);
 void send_live(const std::string type, std::string &node_type, std::string &line);
-void collect_data_loop(mongocxx::client &connection_ring, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes);
+void collect_data_loop(mongocxx::client &connection_ring, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &collect_mode);
 void file_walk(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
 void soh_walk(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
 int32_t request_insert(char* request, char* response, Agent* agent);
-int32_t request_cinfo(char* request, char* response, Agent* agent);
 static thread collect_data_thread;
 static thread file_walk_thread;
 static thread soh_walk_thread;
@@ -59,9 +58,10 @@ int main(int argc, char** argv)
     std::string nodes_path;
     std::string file_walk_path = get_cosmosnodes(true);
     std::string agent_path = "~/cosmos/bin/agent";
-    std::string shell = "/bin/bash";
+    std::string shell = "/bin/bash"; // what shell to run execute() function
     std::string mongo_server = "mongodb://localhost:27017/";
-    std::string realm = "null";
+    std::string realm = "null"; // encompassing nodes
+    std::string collect_mode = "soh"; // soh or agent
 
     char hostname[60];
     gethostname(hostname, sizeof (hostname));
@@ -98,6 +98,9 @@ int main(int argc, char** argv)
             }
             else if (strncmp(argv[i], "--node", sizeof(argv[i]) / sizeof(argv[i][0])) == 0) {
                 node = argv[i + 1];
+            }
+            else if (strncmp(argv[i], "--collect_mode", sizeof(argv[i]) / sizeof(argv[i][0])) == 0) {
+                collect_mode = argv[i + 1];
             }
         }
     }
@@ -771,9 +774,8 @@ int main(int argc, char** argv)
     if ((iretn=agent->add_request("insert", request_insert, "db collection entry_json", "inserts entry_json to collection in db")))
         exit (iretn);
 
-agent->add_request("cinfo", request_cinfo, "cinfo", "get cinfo info");
     // Create a thread for the data collection and service requests.
-    collect_data_thread = thread(collect_data_loop, std::ref(connection_ring), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes));
+    collect_data_thread = thread(collect_data_loop, std::ref(connection_ring), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(collect_mode));
 //    file_walk_thread = thread(file_walk, std::ref(connection_file), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path));
     process_files_thread = thread(process_files, std::ref(connection_file), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "soh");
     process_commands_thread = thread(process_commands, std::ref(connection_file), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "exec");
@@ -804,83 +806,133 @@ agent->add_request("cinfo", request_cinfo, "cinfo", "get cinfo info");
  * \param connection MongoDB connection instance
  */
 
-void collect_data_loop(mongocxx::client &connection_ring, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes) {
-    while (agent->running()) {
-        int32_t iretn;
+void collect_data_loop(mongocxx::client &connection_ring, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &collect_mode)
+{
+    if (collect_mode == "agent") {
+        while (agent->running()) {
+            int32_t iretn;
 
-        Agent::messstruc message;
-        iretn = agent->readring(message, Agent::AgentMessage::ALL, 1., Agent::Where::TAIL);
+            Agent::messstruc message;
+            iretn = agent->readring(message, Agent::AgentMessage::ALL, 1., Agent::Where::TAIL);
 
-        if (iretn > 0) {
-            // First use reference to adata to check conditions
-            std::string *padata = &message.adata;
+            if (iretn > 0) {
+                // First use reference to adata to check conditions
+                std::string *padata = &message.adata;
 
-            // If no content in adata, don't continue or write to database
-            if (!padata->empty() && padata->front() == '{' && padata->back() == '}') {
-                // Extract node from jdata
-                std::string node = json_extract_namedmember(message.jdata, "agent_node");
-                std::string type = json_extract_namedmember(message.jdata, "agent_proc");
-                std::string ip = json_extract_namedmember(message.jdata, "agent_addr");
+                // If no content in adata, don't continue or write to database
+                if (!padata->empty() && padata->front() == '{' && padata->back() == '}') {
+                    // Extract node from jdata
+                    std::string node = json_extract_namedmember(message.jdata, "agent_node");
+                    std::string type = json_extract_namedmember(message.jdata, "agent_proc");
+                    std::string ip = json_extract_namedmember(message.jdata, "agent_addr");
 
-                if (!(node.empty()) && !(type.empty()) && !(ip.empty())) {
-                    // Remove leading and trailing quotes around node
-                    node.erase(0, 1);
-                    node.pop_back();
+                    if (!(node.empty()) && !(type.empty()) && !(ip.empty())) {
+                        // Remove leading and trailing quotes around node
+                        node.erase(0, 1);
+                        node.pop_back();
 
-                    type.erase(0, 1);
-                    type.pop_back();
+                        type.erase(0, 1);
+                        type.pop_back();
 
-                    ip.erase(0, 1);
-                    ip.pop_back();
+                        ip.erase(0, 1);
+                        ip.pop_back();
 
-                    std::string node_type = node + ":" + type;
+                        std::string node_type = node + ":" + type;
 
-                    // Connect to the database and store in the collection of the node name
-                    if (whitelisted_node(included_nodes, excluded_nodes, node)) {
-                        auto collection = connection_ring[realm][node];
-                        auto any_collection = connection_ring[realm]["any"];
-                        std::string response;
-                        mongocxx::options::find options; // store by node
+                        // Connect to the database and store in the collection of the node name
+                        if (whitelisted_node(included_nodes, excluded_nodes, node)) {
+                            auto collection = connection_ring[realm][node];
+                            auto any_collection = connection_ring[realm]["any"];
+                            std::string response;
+                            mongocxx::options::find options; // store by node
 
-                        bsoncxx::document::view_or_value value;
+                            bsoncxx::document::view_or_value value;
 
-                        // Copy adata and manipulate string to add the agent_utc (date)
-                        std::string adata = message.adata;
+                            // Copy adata and manipulate string to add the agent_utc (date)
+                            std::string adata = message.adata;
 
-                        if (!(adata.empty())) {
-                            adata.pop_back();
-                            adata.insert(adata.size(), ", \"node_utc\": " + std::to_string(message.meta.beat.utc));
-                            adata.insert(adata.size(), ", \"node_type\": \"" + node_type + "\"");
-                            adata.insert(adata.size(), ", \"node_ip\": \"" + ip + "\"}");
+                            if (!(adata.empty())) {
+                                adata.pop_back();
+                                adata.insert(adata.size(), ", \"node_utc\": " + std::to_string(message.meta.beat.utc));
+                                adata.insert(adata.size(), ", \"node_type\": \"" + node_type + "\"");
+                                adata.insert(adata.size(), ", \"node_ip\": \"" + ip + "\"}");
 
-                            try {
-                                // Convert JSON into BSON object to prepare for database insertion
-                                value = bsoncxx::from_json(adata);
+                                try {
+                                    // Convert JSON into BSON object to prepare for database insertion
+                                    value = bsoncxx::from_json(adata);
 
-                                try
-                                {
-                                    // Insert BSON object into collection specified
-                                    auto insert = collection.insert_one(value);
-                                    auto any_insert = any_collection.insert_one(value);
+                                    try
+                                    {
+                                        // Insert BSON object into collection specified
+                                        auto insert = collection.insert_one(value);
+                                        auto any_insert = any_collection.insert_one(value);
 
-                                    cout << "WS Live: Inserted adata " << node_type << endl;
+                                        cout << "WS Live: Inserted adata " << node_type << endl;
 
-                                    if (type != "exec") {
-                                        send_live("WS Live", realm, adata);
+                                        if (type != "exec") {
+                                            send_live("WS Live", realm, adata);
+                                        }
+                                    } catch (const mongocxx::bulk_write_exception &err) {
+                                        cout << "WS Live: " << err.what() << endl;
                                     }
-                                } catch (const mongocxx::bulk_write_exception &err) {
+                                } catch (const bsoncxx::exception &err) {
                                     cout << "WS Live: " << err.what() << endl;
                                 }
-                            } catch (const bsoncxx::exception &err) {
-                            cout << "WS Live: " << err.what() << endl;
                             }
                         }
                     }
                 }
             }
+            COSMOS_SLEEP(1.);
         }
-        COSMOS_SLEEP(1.);
+    } else if (collect_mode == "soh") {
+        while (agent->running()) {
+            beatstruc soh;
+            std::string response = "{}";
+
+            soh = agent->find_agent("any", "exec", 5.);
+
+            if (soh.utc == 0.) {
+                cout << "Error finding agent exec" << endl;
+            } else {
+                agent->send_request(soh, "soh", response);
+
+                // If [NOK] is not found, valid response
+                if (response.find("[NOK]") == std::string::npos) {
+                    std::string node = json_extract_namedmember(response, "node_name");
+
+                    if (whitelisted_node(included_nodes, excluded_nodes, node)) {
+                        auto collection = connection_ring[realm][node];
+                        auto any_collection = connection_ring[realm]["any"];
+                        try {
+                            // Convert JSON into BSON object to prepare for database insertion
+                             bsoncxx::document::view_or_value value = bsoncxx::from_json(response);
+
+                            try
+                            {
+                                // Insert BSON object into collection specified
+                                auto insert = collection.insert_one(value);
+                                auto any_insert = any_collection.insert_one(value);
+
+                                cout << "WS Live: Inserted adata " << node << endl;
+
+                                send_live("WS Live", realm, response);
+                            } catch (const mongocxx::bulk_write_exception &err) {
+                                cout << "WS Live: " << err.what() << endl;
+                            }
+                        } catch (const bsoncxx::exception &err) {
+                            cout << "WS Live: " << err.what() << endl;
+                        }
+                    }
+                }
+
+                cout << response << endl;
+            }
+
+            COSMOS_SLEEP(5.);
+        }
     }
+
     return;
 }
 
@@ -1083,6 +1135,11 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
 
     while (agent->running())
     {
+        cout << agent->agent_list[0].proc << endl;
+
+        for (beatstruc agent : agent->agent_list) {
+            cout << agent.proc << endl;
+        }
         std::string list;
         std::string response = "{\"node_type\": \"file\", \"outgoing\": {";
 
@@ -1486,28 +1543,5 @@ int32_t request_insert(char* request, char* response, Agent* agent) {
         cout << "Request: Error converting to BSON from JSON ("<<entry<<")" << endl;
         sprintf(response,"Error converting to BSON from JSON.");
     }
-    return 0;
-}
-
-int32_t request_cinfo(char* request, char* response, Agent* agent) {
-    std::string soh_string = "{\"device_bcreg_volt_000\": 7.8933001,\"device_bcreg_amp_000\": 0.0029325001}";
-    cosmosstruc *struc = json_create();
-    //std::string soh_string = "{\"device_cpu_utc_000\":59015.993214190625,\"device_cpu_maxgib_000\":22.603275,\"device_cpu_gib_000\":11.20945,\"memory_utilization_000\":0.4959214812787105,\"cpu_utilization_000\":1.809999942779541}";
-
-    std::string r(request);
-    int32_t s = json_setup_node("neutron1", struc);
-
-    cout << s;
-
-    s = json_parse(soh_string, struc);
-
-    cout << s;
-
-    cout << "omg";
-
-//pieces (50) -> click on another list, gives you name
-//        device_cpu_000_...
-//        cpu type, know idx 000, assembled names
-
     return 0;
 }
