@@ -1415,8 +1415,6 @@ void maintain_agent_list(std::string &agent_path, std::string &shell) {
 
         response.insert(response.size(), "]}");
 
-        cout << response << endl;
-
         WsClient client("localhost:8081/live/list");
 
         client.on_open = [&response](std::shared_ptr<WsClient::Connection> connection)
