@@ -888,7 +888,7 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &realm, st
             beatstruc soh;
             std::string response = "{}";
 
-            soh = agent->find_agent("any", "exec", 5.);
+            soh = agent->find_agent("any", "exec");
 
             if (soh.utc == 0.) {
                 cout << "Error finding agent exec" << endl;
@@ -1374,8 +1374,6 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
 //! Execute the agent list_json command, check if node is whitelisted, extract data from json, insert into set, if set is changed then send the update via the live websocket.
 //!
 void maintain_agent_list(std::string &agent_path, std::string &shell) {
-    std::set<std::pair<std::string, std::string>> previousSortedAgents;
-
     std::map<std::string, std::string> fullList;
 
     while (agent->running())
@@ -1395,23 +1393,19 @@ void maintain_agent_list(std::string &agent_path, std::string &shell) {
 
         std::string response = "{\"node_type\": \"list\", \"agent_list\": [";
 
-        std::for_each(fullList.begin(), fullList.end(), [&fullList](const std::pair<std::string, std::string> &item)
+        std::for_each(sortedAgents.begin(), sortedAgents.end(), [&fullList, &response](const std::pair<std::string, std::string> &item)
         {
-            if (fullList[std::get<0>(item)][0] != *"-") {
-               fullList[std::get<0>(item)] = "-" + fullList[std::get<0>(item)];
+            std::string past_utc = fullList[std::get<0>(item)];
+
+            if (past_utc == '-' + std::get<1>(item)) {
+                response.insert(response.size(), "{\"agent\": \"" + std::get<0>(item) + "\", \"utc\": -" + std::get<1>(item) + "},");
+            } else if (past_utc == std::get<1>(item)) {
+                response.insert(response.size(), "{\"agent\": \"" + std::get<0>(item) + "\", \"utc\": " + std::get<1>(item) + "},");
+                fullList[std::get<0>(item)] = '-' + std::get<1>(item);
+            } else {
+                response.insert(response.size(), "{\"agent\": \"" + std::get<0>(item) + "\", \"utc\": " + std::get<1>(item) + "},");
+                fullList[std::get<0>(item)] = std::get<1>(item);
             }
-
-            cout << fullList[std::get<0>(item)] << endl;
-        });
-
-        std::for_each(sortedAgents.begin(), sortedAgents.end(), [&fullList](const std::pair<std::string, std::string> &item)
-        {
-          fullList[std::get<0>(item)] = std::get<1>(item);
-        });
-
-        std::for_each(sortedAgents.begin(), sortedAgents.end(), [&response](const std::pair<std::string, std::string> &item)
-        {
-            response.insert(response.size(), "{\"agent\": \"" + std::get<0>(item) + "\", \"utc\": " + std::get<1>(item) + "},");
         });
 
         if (response.back() == ',')
@@ -1425,34 +1419,29 @@ void maintain_agent_list(std::string &agent_path, std::string &shell) {
 
         WsClient client("localhost:8081/live/list");
 
-        if (previousSortedAgents != sortedAgents) {
-            client.on_open = [&response](std::shared_ptr<WsClient::Connection> connection)
-            {
-                cout << "WS Agent Live: Broadcasted updated agent list" << endl;
+        client.on_open = [&response](std::shared_ptr<WsClient::Connection> connection)
+        {
+            cout << "WS Agent Live: Broadcasted updated agent list" << endl;
 
-                connection->send(response);
+            connection->send(response);
 
-                connection->send_close(1000);
-            };
+            connection->send_close(1000);
+        };
 
-            client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
-            {
-                if (status != 1000) {
-                    cout << "WS Live: Closed connection with status code " << status << endl;
-                }
-            };
+        client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
+        {
+            if (status != 1000) {
+                cout << "WS Live: Closed connection with status code " << status << endl;
+            }
+        };
 
-            // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
-            client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
-            {
-                cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
-            };
+        // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
+        client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
+        {
+            cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
+        };
 
-            client.start();
-
-            previousSortedAgents = sortedAgents;
-        }
-
+        client.start();
 
         COSMOS_SLEEP(5);
     }
