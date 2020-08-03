@@ -124,7 +124,7 @@ map<std::string, std::string> get_keys(const std::string &request, const std::st
 void str_to_lowercase(std::string &input);
 MongoFindOption option_table(std::string input);
 void set_mongo_options(mongocxx::options::find &options, std::string request);
-void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &agent_path, std::string &shell);
+void maintain_agent_list(std::string &agent_path, std::string &shell);
 void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &agent_path, std::string &shell, std::string hostnode);
 void process_files(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path, std::string agent_type);
 void process_commands(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path, std::string agent_type);
@@ -524,7 +524,7 @@ void process_files(mongocxx::client &connection_file, std::string &realm, std::v
                                         // Query the database for the node_utc.
                                         try
                                         {
-                                            document = collection.find_one(bsoncxx::builder::basic::make_document(kvp("node_utc", stod(node_utc))));
+                                            document = any_collection.find_one(bsoncxx::builder::basic::make_document(kvp("node_utc", stod(node_utc))));
                                         }
                                         catch (const mongocxx::query_exception &err)
                                         {
