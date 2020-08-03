@@ -779,7 +779,7 @@ int main(int argc, char** argv)
 //    file_walk_thread = thread(file_walk, std::ref(connection_file), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path));
     process_files_thread = thread(process_files, std::ref(connection_file), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "soh");
     process_commands_thread = thread(process_commands, std::ref(connection_file), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "exec");
-    maintain_agent_list_thread = thread(maintain_agent_list, std::ref(agent_path), std::ref(shell));
+    maintain_agent_list_thread = thread(maintain_agent_list);
     maintain_file_list_thread = thread(maintain_file_list, std::ref(included_nodes), std::ref(excluded_nodes), std::ref(agent_path), std::ref(shell), node);
 
     while(agent->running()) {
@@ -1373,7 +1373,7 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
 //! \brief maintain_agent_list Query the agent list at a certain interval and maintain the list in a sorted set. Send it off to the websocket if anything changes.
 //! Execute the agent list_json command, check if node is whitelisted, extract data from json, insert into set, if set is changed then send the update via the live websocket.
 //!
-void maintain_agent_list(std::string &agent_path, std::string &shell) {
+void maintain_agent_list() {
     std::map<std::string, std::string> fullList;
 
     while (agent->running())
