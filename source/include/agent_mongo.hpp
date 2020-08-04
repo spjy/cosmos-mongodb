@@ -51,6 +51,7 @@
 #include <mongocxx/exception/logic_error.hpp>
 #include <mongocxx/cursor.hpp>
 #include <mongocxx/options/find.hpp>
+#include <mongocxx/pool.hpp>
 
 #include <server_ws.hpp>
 #include <client_ws.hpp>
@@ -65,6 +66,11 @@ using namespace bsoncxx;
 using bsoncxx::builder::basic::kvp;
 using namespace bsoncxx::builder::stream;
 namespace fs = std::experimental::filesystem;
+
+std::mutex live_mtx{};
+std::mutex query_mtx{};
+std::mutex file_mtx{};
+std::mutex command_mtx{};
 
 static Agent *agent;
 
@@ -524,7 +530,9 @@ void process_files(mongocxx::client &connection_file, std::string &realm, std::v
                                         // Query the database for the node_utc.
                                         try
                                         {
+                                            file_mtx.lock();
                                             document = any_collection.find_one(bsoncxx::builder::basic::make_document(kvp("node_utc", stod(node_utc))));
+                                            file_mtx.unlock();
                                         }
                                         catch (const mongocxx::query_exception &err)
                                         {
@@ -558,7 +566,9 @@ void process_files(mongocxx::client &connection_file, std::string &realm, std::v
                                                 try
                                                 {
                                                     // Insert BSON object into collection specified
+                                                    file_mtx.lock();
                                                     auto any_insert = any_collection.insert_one(value);
+                                                    file_mtx.unlock();
 
                                                     send_live("File", node_type, line);
                                                 }
@@ -754,7 +764,9 @@ void process_commands(mongocxx::client &connection_file, std::string &realm, std
                                             stdx::optional<bsoncxx::document::value> document = collection.find_one_and_replace(query, bsoncxx::from_json(line));
 
                                             if (!document) {
+                                                command_mtx.lock();
                                                 collection.insert_one(bsoncxx::from_json(line));
+                                                command_mtx.unlock();
                                             }
 
                                             gzclose(out);

@@ -38,7 +38,7 @@ static mongocxx::instance instance
 
 std::string execute(std::string cmd, std::string shell);
 void send_live(const std::string type, std::string &node_type, std::string &line);
-void collect_data_loop(mongocxx::client &connection_ring, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &collect_mode);
+void collect_data_loop(mongocxx::client &connection_query, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &collect_mode);
 void file_walk(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
 void soh_walk(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
 int32_t request_insert(char* request, char* response, Agent* agent);
@@ -49,7 +49,9 @@ static thread process_files_thread;
 static thread process_commands_thread;
 static thread maintain_agent_list_thread;
 static thread maintain_file_list_thread;
+mongocxx::client connection_live;
 mongocxx::client connection_file;
+mongocxx::client connection_command;
 
 int main(int argc, char** argv)
 {
@@ -167,6 +169,7 @@ int main(int argc, char** argv)
     cout << "Agent path: " << agent_path << endl;
     cout << "Shell path: " << shell << endl;
     cout << "Node: " << node << endl;
+    cout << "Collection mode: " << collect_mode << endl;
 
     agent = new Agent(node, "mongo");
 
@@ -175,13 +178,25 @@ int main(int argc, char** argv)
         exit(1);
     }
     // Connect to a MongoDB URI and establish connection
-    mongocxx::client connection_ring {
+    mongocxx::client connection_query {
         mongocxx::uri {
             mongo_server
         }
     };
 
     connection_file = {
+        mongocxx::uri {
+            mongo_server
+        }
+    };
+
+    connection_live = {
+        mongocxx::uri {
+            mongo_server
+        }
+    };
+
+    connection_command = {
         mongocxx::uri {
             mongo_server
         }
@@ -211,7 +226,7 @@ int main(int argc, char** argv)
 
     // Endpoint is /query/database/node:process, responds with query
     // Payload is { "options": {}, "multiple": bool, "query": {} }
-    query.resource["^/query/(.+)/(.+)/?$"]["POST"] = [&connection_ring, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+    query.resource["^/query/(.+)/(.+)/?$"]["POST"] = [&connection_query, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         // Get http payload
         auto message = request->content.string();
         cout << "Query: Received request: " << request->content.string() << endl;
@@ -224,7 +239,7 @@ int main(int argc, char** argv)
         mongocxx::options::find mongo_options;
 
         // Connect to db
-        mongocxx::collection collection = connection_ring[request->path_match[1].str()][request->path_match[2].str()];
+        mongocxx::collection collection = connection_query[request->path_match[1].str()][request->path_match[2].str()];
 
         // Parse mongodb options
         if (!options.empty()) {
@@ -235,7 +250,9 @@ int main(int argc, char** argv)
         if (multiple == "t") {
             try {
                 // Query the database based on the filter
+                query_mtx.lock();
                 mongocxx::cursor cursor = collection.find(bsoncxx::from_json(query), mongo_options);
+                query_mtx.unlock();
 
                 // Check if the returned cursor is empty, if so return an empty array
                 if (!(cursor.begin() == cursor.end())) {
@@ -271,7 +288,9 @@ int main(int argc, char** argv)
 
             try {
                 // Find single document
+                query_mtx.lock();
                 document = collection.find_one(bsoncxx::from_json(query), mongo_options);
+                query_mtx.unlock();
 
                 // Check if document is empty, if so return an empty object
                 if (document) {
@@ -314,16 +333,19 @@ int main(int argc, char** argv)
         resp->write(result, header);
     };
 
-    query.resource["^/commands/(.+)?$"]["GET"] = [&connection_ring, &realm, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+    query.resource["^/commands/(.+)?$"]["GET"] = [&connection_query, &realm, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         std::string message = request->content.string();
 
         // write to cosmos/nodes/node/temp/exec/node_mjd.event
-        auto collection = connection_ring[realm][request->path_match[1].str() + ":commands"];
+        auto collection = connection_query[realm][request->path_match[1].str() + ":commands"];
 
         try
         {
             // Get all documents
+
+            query_mtx.lock();
             auto cursor = collection.find({});
+            query_mtx.unlock();
 
             std::ostringstream commands;
 
@@ -349,17 +371,19 @@ int main(int argc, char** argv)
 
     };
 
-    query.resource["^/commands/(.+)/?$"]["POST"] = [&connection_ring, &realm, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+    query.resource["^/commands/(.+)/?$"]["POST"] = [&connection_query, &realm, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         std::string message = request->content.string();
         std::string command = json_extract_namedmember(message, "command");
 
         // write to cosmos/nodes/node/temp/exec/node_mjd.event
-        auto collection = connection_ring[realm][request->path_match[1].str() + ":commands"];
+        auto collection = connection_query[realm][request->path_match[1].str() + ":commands"];
 
         try
         {
             // Insert BSON object into collection specified
+            query_mtx.lock();
             auto insert = collection.insert_one(bsoncxx::from_json(command));
+            query_mtx.unlock();
 
             resp->write("{ \"message\": \"Successfully created command.\" }", header);
         } catch (const mongocxx::bulk_write_exception &err) {
@@ -370,7 +394,7 @@ int main(int argc, char** argv)
     };
 
 
-    query.resource["^/commands/(.+)/?$"]["DELETE"] = [&connection_ring, &realm, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+    query.resource["^/commands/(.+)/?$"]["DELETE"] = [&connection_query, &realm, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         std::string message = request->content.string();
         std::string event_name = json_extract_namedmember(message, "event_name");
 
@@ -378,12 +402,14 @@ int main(int argc, char** argv)
         event_name.pop_back();
 
         // write to cosmos/nodes/node/temp/exec/node_mjd.event
-        auto collection = connection_ring[realm][request->path_match[1].str() + ":commands"];
+        auto collection = connection_query[realm][request->path_match[1].str() + ":commands"];
 
         try
         {
             // Insert BSON object into collection specified
+            query_mtx.lock();
             auto del = collection.delete_one(bsoncxx::builder::basic::make_document(kvp("event_name", event_name)));
+            query_mtx.unlock();
 
             if (del) {
                 resp->write("{ \"message\": \"Successfully deleted command.\" }", header);
@@ -399,7 +425,7 @@ int main(int argc, char** argv)
         }
     };
     // Query agent executable { "command": "agent node proc help" }
-    query.resource["^/exec/(.+)/?$"]["POST"] = [&connection_ring, &realm, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+    query.resource["^/exec/(.+)/?$"]["POST"] = [&connection_query, &realm, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         std::string message = request->content.string();
         std::string event = json_extract_namedmember(message, "event");
         std::string node = request->path_match[1].str();
@@ -407,12 +433,14 @@ int main(int argc, char** argv)
         // write to cosmos/nodes/node/outgoing/exec/node_mjd.event
         log_write(node, "exec", currentmjd(), "", "command", event.c_str(), "outgoing");
 
-        auto collection = connection_ring[realm][request->path_match[1].str() + ":executed"];
+        auto collection = connection_query[realm][request->path_match[1].str() + ":executed"];
 
         try
         {
             // Insert BSON object into collection specified
+            query_mtx.lock();
             auto insert = collection.insert_one(bsoncxx::from_json(event));
+            query_mtx.unlock();
         } catch (const mongocxx::bulk_write_exception &err) {
             cout << err.what() << endl;
         }
@@ -775,10 +803,10 @@ int main(int argc, char** argv)
         exit (iretn);
 
     // Create a thread for the data collection and service requests.
-    collect_data_thread = thread(collect_data_loop, std::ref(connection_ring), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(collect_mode));
+    collect_data_thread = thread(collect_data_loop, std::ref(connection_query), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(collect_mode));
 //    file_walk_thread = thread(file_walk, std::ref(connection_file), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path));
     process_files_thread = thread(process_files, std::ref(connection_file), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "soh");
-    process_commands_thread = thread(process_commands, std::ref(connection_file), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "exec");
+    process_commands_thread = thread(process_commands, std::ref(connection_command), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "exec");
     maintain_agent_list_thread = thread(maintain_agent_list);
     maintain_file_list_thread = thread(maintain_file_list, std::ref(included_nodes), std::ref(excluded_nodes), std::ref(agent_path), std::ref(shell), node);
 
@@ -806,7 +834,7 @@ int main(int argc, char** argv)
  * \param connection MongoDB connection instance
  */
 
-void collect_data_loop(mongocxx::client &connection_ring, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &collect_mode)
+void collect_data_loop(mongocxx::client &connection_live, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &collect_mode)
 {
     if (collect_mode == "agent") {
         while (agent->running()) {
@@ -841,7 +869,7 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &realm, st
 
                         // Connect to the database and store in the collection of the node name
                         if (whitelisted_node(included_nodes, excluded_nodes, node)) {
-                            auto any_collection = connection_ring[realm]["any"];
+                            auto any_collection = connection_live[realm]["any"];
                             std::string response;
                             mongocxx::options::find options; // store by node
 
@@ -863,7 +891,9 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &realm, st
                                     try
                                     {
                                         // Insert BSON object into collection specified
+                                        live_mtx.lock();
                                         auto any_insert = any_collection.insert_one(value);
+                                        live_mtx.unlock();
 
                                         cout << "WS Live: Inserted adata " << node_type << endl;
 
@@ -900,7 +930,7 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &realm, st
                     std::string node = json_extract_namedmember(response, "node_name");
 
                     if (whitelisted_node(included_nodes, excluded_nodes, node)) {
-                        auto any_collection = connection_ring[realm]["any"];
+                        auto any_collection = connection_live[realm]["any"];
                         try {
                             // Convert JSON into BSON object to prepare for database insertion
                              bsoncxx::document::view_or_value value = bsoncxx::from_json(response);
@@ -908,7 +938,9 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &realm, st
                             try
                             {
                                 // Insert BSON object into collection specified
+                                live_mtx.lock();
                                 auto any_insert = any_collection.insert_one(value);
+                                live_mtx.unlock();
 
                                 cout << "WS Live: Inserted adata " << node << endl;
 
@@ -1047,7 +1079,9 @@ void file_walk(mongocxx::client &connection_file, std::string &realm, std::vecto
                                                         try
                                                         {
                                                             // Insert BSON object into collection specified
+                                                            file_mtx.lock();
                                                             auto insert = collection.insert_one(value);
+                                                            file_mtx.unlock();
 
                                                             cout << "File: Inserted adata into collection " << node_type << endl;
                                                         }
