@@ -779,7 +779,7 @@ int main(int argc, char** argv)
 //    file_walk_thread = thread(file_walk, std::ref(connection_file), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path));
     process_files_thread = thread(process_files, std::ref(connection_file), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "soh");
     process_commands_thread = thread(process_commands, std::ref(connection_file), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "exec");
-    maintain_agent_list_thread = thread(maintain_agent_list, std::ref(included_nodes), std::ref(excluded_nodes), std::ref(agent_path), std::ref(shell));
+    maintain_agent_list_thread = thread(maintain_agent_list);
     maintain_file_list_thread = thread(maintain_file_list, std::ref(included_nodes), std::ref(excluded_nodes), std::ref(agent_path), std::ref(shell), node);
 
     while(agent->running()) {
@@ -888,7 +888,7 @@ void collect_data_loop(mongocxx::client &connection_ring, std::string &realm, st
             beatstruc soh;
             std::string response = "{}";
 
-            soh = agent->find_agent("any", "exec", 5.);
+            soh = agent->find_agent("any", "exec");
 
             if (soh.utc == 0.) {
                 cout << "Error finding agent exec" << endl;
@@ -1373,9 +1373,7 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
 //! \brief maintain_agent_list Query the agent list at a certain interval and maintain the list in a sorted set. Send it off to the websocket if anything changes.
 //! Execute the agent list_json command, check if node is whitelisted, extract data from json, insert into set, if set is changed then send the update via the live websocket.
 //!
-void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &agent_path, std::string &shell) {
-    std::set<std::pair<std::string, std::string>> previousSortedAgents;
-
+void maintain_agent_list() {
     std::map<std::string, std::string> fullList;
 
     while (agent->running())
@@ -1383,110 +1381,65 @@ void maintain_agent_list(std::vector<std::string> &included_nodes, std::vector<s
         std::set<std::pair<std::string, std::string>> sortedAgents;
         std::string list;
 
-        list = execute("\"" + agent_path + " list_json\"", shell);
+        for (beatstruc agent : agent->agent_list) {
+            std::string node = agent.node;
+            std::string proc = agent.proc;
+            std::string utc = std::to_string(agent.utc);
+
+            std::pair<std::string, std::string> agent_node_proc_utc(node + ":" + proc, utc);
+
+            sortedAgents.insert(agent_node_proc_utc);
+        }
+
+        std::string response = "{\"node_type\": \"list\", \"agent_list\": [";
+
+        std::for_each(sortedAgents.begin(), sortedAgents.end(), [&fullList, &response](const std::pair<std::string, std::string> &item)
+        {
+            std::string past_utc = fullList[std::get<0>(item)];
+
+            if (past_utc == '-' + std::get<1>(item)) {
+                response.insert(response.size(), "{\"agent\": \"" + std::get<0>(item) + "\", \"utc\": -" + std::get<1>(item) + "},");
+            } else if (past_utc == std::get<1>(item)) {
+                response.insert(response.size(), "{\"agent\": \"" + std::get<0>(item) + "\", \"utc\": " + std::get<1>(item) + "},");
+                fullList[std::get<0>(item)] = '-' + std::get<1>(item);
+            } else {
+                response.insert(response.size(), "{\"agent\": \"" + std::get<0>(item) + "\", \"utc\": " + std::get<1>(item) + "},");
+                fullList[std::get<0>(item)] = std::get<1>(item);
+            }
+        });
+
+        if (response.back() == ',')
+        {
+            response.pop_back();
+        }
+
+        response.insert(response.size(), "]}");
 
         WsClient client("localhost:8081/live/list");
 
-        try
+        client.on_open = [&response](std::shared_ptr<WsClient::Connection> connection)
         {
-            bsoncxx::document::value json = bsoncxx::from_json(list);
-            bsoncxx::document::view opt { json.view() };
+            cout << "WS Agent Live: Broadcasted updated agent list" << endl;
 
-            bsoncxx::document::element agent_list
-            {
-                opt["agent_list"]
-            };
+            connection->send(response);
 
-            bsoncxx::array::view agent_list_array {agent_list.get_array().value};
+            connection->send_close(1000);
+        };
 
-            for (bsoncxx::array::element e : agent_list_array)
-            {
-                if (e)
-                {
-                    bsoncxx::document::element agent_node
-                    {
-                        e.get_document().view()["agent_node"]
-                    };
-
-                    bsoncxx::document::element agent_proc
-                    {
-                        e.get_document().view()["agent_proc"]
-                    };
-
-                    bsoncxx::document::element agent_utc
-                    {
-                        e.get_document().view()["agent_utc"]
-                    };
-
-                    std::string node = bsoncxx::string::to_string(agent_node.get_utf8().value);
-
-                    if (whitelisted_node(included_nodes, excluded_nodes, node))
-                    {
-                        std::pair<std::string, std::string> agent_node_proc_utc(node + ":" + bsoncxx::string::to_string(agent_proc.get_utf8().value), std::to_string(agent_utc.get_double().value));
-
-                        sortedAgents.insert(agent_node_proc_utc);
-                    }
-                }
-            }
-
-            std::string response = "{\"node_type\": \"list\", \"agent_list\": [";
-
-            std::for_each(fullList.begin(), fullList.end(), [&fullList](const std::pair<std::string, std::string> &item)
-            {
-                if (fullList[std::get<0>(item)][0] != *"-") {
-                   fullList[std::get<0>(item)] = "-" + fullList[std::get<0>(item)];
-                }
-            });
-
-            std::for_each(sortedAgents.begin(), sortedAgents.end(), [&fullList](const std::pair<std::string, std::string> &item)
-            {
-                  fullList[std::get<0>(item)] = std::get<1>(item);
-            });
-
-            std::for_each(sortedAgents.begin(), sortedAgents.end(), [&response](const std::pair<std::string, std::string> &item)
-            {
-                response.insert(response.size(), "{\"agent\": \"" + std::get<0>(item) + "\", \"utc\": " + std::get<1>(item) + "},");
-            });
-
-            if (response.back() == ',')
-            {
-                response.pop_back();
-            }
-
-            response.insert(response.size(), "]}");
-
-            if (previousSortedAgents != sortedAgents) {
-                client.on_open = [&response](std::shared_ptr<WsClient::Connection> connection)
-                {
-                    cout << "WS Agent Live: Broadcasted updated agent list" << endl;
-
-                    connection->send(response);
-
-                    connection->send_close(1000);
-                };
-
-                client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
-                {
-                    if (status != 1000) {
-                        cout << "WS Live: Closed connection with status code " << status << endl;
-                    }
-                };
-
-                // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
-                client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
-                {
-                    cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
-                };
-
-                client.start();
-
-                previousSortedAgents = sortedAgents;
-            }
-        }
-        catch (const bsoncxx::exception &err)
+        client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
         {
-            cout << "WS Agent Live: " << err.what() << endl;
-        }
+            if (status != 1000) {
+                cout << "WS Live: Closed connection with status code " << status << endl;
+            }
+        };
+
+        // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
+        client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
+        {
+            cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
+        };
+
+        client.start();
 
         COSMOS_SLEEP(5);
     }
