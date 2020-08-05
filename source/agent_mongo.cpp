@@ -916,24 +916,28 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
     } else if (collect_mode == "soh") {
         while (agent->running()) {
             beatstruc soh;
-            std::string response = "{}";
 
             soh = agent->find_agent("any", "exec");
 
             if (soh.utc == 0.) {
                 cout << "Error finding agent exec" << endl;
             } else {
-                agent->send_request(soh, "soh", response);
+                std::string response;
+                int resp = agent->send_request(soh, "soh", response, 3.);
 
+                std::string node = json_extract_namedmember(response, "node_name");
                 // If [NOK] is not found, valid response
-                if (response.find("[NOK]") == std::string::npos) {
-                    std::string node = json_extract_namedmember(response, "node_name");
+                if (resp > 0 && response.find("[NOK]") == std::string::npos && !node.empty()) {
+                    node.erase(0, 1);
+                    node.pop_back();
 
                     if (whitelisted_node(included_nodes, excluded_nodes, node)) {
                         auto any_collection = connection_live[realm]["any"];
+                        bsoncxx::document::view_or_value value;
+
                         try {
                             // Convert JSON into BSON object to prepare for database insertion
-                             bsoncxx::document::view_or_value value = bsoncxx::from_json(response);
+                            value = bsoncxx::from_json(response);
 
                             try
                             {
@@ -942,19 +946,18 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
                                 auto any_insert = any_collection.insert_one(value);
                                 live_mtx.unlock();
 
-                                cout << "WS Live: Inserted adata " << node << endl;
+                                cout << "WS SOH Live: Inserted adata " << node << endl;
 
                                 send_live("WS Live", realm, response);
                             } catch (const mongocxx::bulk_write_exception &err) {
-                                cout << "WS Live: " << err.what() << endl;
+                                cout << "WS SOH Live: " << err.what() << endl;
                             }
                         } catch (const bsoncxx::exception &err) {
-                            cout << "WS Live: " << err.what() << endl;
+                            cout << "WS SOH Live: " << err.what() << endl;
                         }
                     }
                 }
 
-                cout << response << endl;
             }
 
             COSMOS_SLEEP(5.);
