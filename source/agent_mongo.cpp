@@ -38,7 +38,7 @@ static mongocxx::instance instance
 
 std::string execute(std::string cmd, std::string shell);
 void send_live(const std::string type, std::string &node_type, std::string &line);
-void collect_data_loop(mongocxx::client &connection_query, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &collect_mode);
+void collect_data_loop(mongocxx::client &connection_query, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &collect_mode, HttpsClient &client, std::string &token);
 void file_walk(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
 void soh_walk(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
 int32_t request_insert(char* request, char* response, Agent* agent);
@@ -64,6 +64,7 @@ int main(int argc, char** argv)
     std::string mongo_server = "mongodb://localhost:27017/";
     std::string realm = "null"; // encompassing nodes
     std::string collect_mode = "soh"; // soh or agent
+    std::string token = "/services/";
 
     char hostname[60];
     gethostname(hostname, sizeof (hostname));
@@ -103,6 +104,9 @@ int main(int argc, char** argv)
             }
             else if (strncmp(argv[i], "--collect_mode", sizeof(argv[i]) / sizeof(argv[i][0])) == 0) {
                 collect_mode = argv[i + 1];
+            }
+            else if (strncmp(argv[i], "--slack_token", sizeof(argv[i]) / sizeof(argv[i][0])) == 0) {
+                token.insert(token.size(), argv[i + 1]);
             }
         }
     }
@@ -206,6 +210,8 @@ int main(int argc, char** argv)
     HttpServer query;
     query.config.port = 8082;
 
+    HttpsClient client("hooks.slack.com");
+
     // Set header fields
     SimpleWeb::CaseInsensitiveMultimap header;
     header.emplace("Content-Type", "application/json");
@@ -223,7 +229,6 @@ int main(int argc, char** argv)
           response->write(SimpleWeb::StatusCode::client_error_bad_request, e.what());
       }
     };
-
     // Endpoint is /query/database/node:process, responds with query
     // Payload is { "options": {}, "multiple": bool, "query": {} }
     query.resource["^/query/(.+)/(.+)/?$"]["POST"] = [&connection_query, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
@@ -803,7 +808,7 @@ int main(int argc, char** argv)
         exit (iretn);
 
     // Create a thread for the data collection and service requests.
-    collect_data_thread = thread(collect_data_loop, std::ref(connection_query), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(collect_mode));
+    collect_data_thread = thread(collect_data_loop, std::ref(connection_query), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(collect_mode), std::ref(client), std::ref(token));
 //    file_walk_thread = thread(file_walk, std::ref(connection_file), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path));
     process_files_thread = thread(process_files, std::ref(connection_file), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "soh");
     process_commands_thread = thread(process_commands, std::ref(connection_command), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "exec");
@@ -834,10 +839,14 @@ int main(int argc, char** argv)
  * \param connection MongoDB connection instance
  */
 
-void collect_data_loop(mongocxx::client &connection_live, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &collect_mode)
+void collect_data_loop(mongocxx::client &connection_live, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &collect_mode, HttpsClient &client, std::string &token)
 {
+    time_t startTime = time(NULL);
+
     if (collect_mode == "agent") {
         while (agent->running()) {
+            time_t currentTime = time(NULL);
+
             int32_t iretn;
 
             Agent::messstruc message;
@@ -866,6 +875,18 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
                         ip.pop_back();
 
                         std::string node_type = node + ":" + type;
+
+                        if (token.length() > 10 && difftime(currentTime, startTime) >= 1800) {
+                            std::string json_string = "{ \"text\": \"New activity after 30 minutes! " + message.jdata + "\" }";
+                            try {
+                                cout << "POST request to http://hooks.slack.com" << endl;
+                                auto response = client.request("POST", token, json_string);
+                                cout << "Response content: " << response->content.string() << endl;
+                            }
+                            catch(const SimpleWeb::system_error &e) {
+                                cout << "Client request error: " << e.what() << endl;
+                            }
+                        }
 
                         // Connect to the database and store in the collection of the node name
                         if (whitelisted_node(included_nodes, excluded_nodes, node)) {
@@ -909,12 +930,14 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
                             }
                         }
                     }
+                    time(&startTime);
                 }
             }
             COSMOS_SLEEP(1.);
         }
     } else if (collect_mode == "soh") {
         while (agent->running()) {
+            time_t currentTime = time(NULL);
             beatstruc soh;
 
             soh = agent->find_agent("any", "exec");
@@ -930,6 +953,18 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
                 if (resp > 0 && response.find("[NOK]") == std::string::npos && !node.empty()) {
                     node.erase(0, 1);
                     node.pop_back();
+
+                    if (token.length() > 10 && difftime(currentTime, startTime) >= 1800) {
+                        std::string json_string = "{ \"text\": \"New activity after 30 minutes! " + response + "\" }";
+                        try {
+                            cout << "POST request to http://hooks.slack.com" << endl;
+                            auto response = client.request("POST", token, json_string);
+                            cout << "Response content: " << response->content.string() << endl;
+                        }
+                        catch(const SimpleWeb::system_error &e) {
+                            cout << "Client request error: " << e.what() << endl;
+                        }
+                    }
 
                     if (whitelisted_node(included_nodes, excluded_nodes, node)) {
                         auto any_collection = connection_live[realm]["any"];
@@ -956,6 +991,7 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
                             cout << "WS SOH Live: " << err.what() << endl;
                         }
                     }
+                    time(&currentTime);
                 }
 
             }
