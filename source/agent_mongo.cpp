@@ -38,7 +38,7 @@ static mongocxx::instance instance
 
 std::string execute(std::string cmd, std::string shell);
 void send_live(const std::string type, std::string &node_type, std::string &line);
-void collect_data_loop(mongocxx::client &connection_query, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &collect_mode);
+void collect_data_loop(mongocxx::client &connection_live, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &collect_mode);
 void file_walk(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
 void soh_walk(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
 int32_t request_insert(char* request, char* response, Agent* agent);
@@ -49,7 +49,6 @@ static thread process_files_thread;
 static thread process_commands_thread;
 static thread maintain_agent_list_thread;
 static thread maintain_file_list_thread;
-mongocxx::client connection_live;
 mongocxx::client connection_file;
 mongocxx::client connection_command;
 
@@ -190,7 +189,7 @@ int main(int argc, char** argv)
         }
     };
 
-    connection_live = {
+    mongocxx::client connection_live = {
         mongocxx::uri {
             mongo_server
         }
@@ -803,7 +802,7 @@ int main(int argc, char** argv)
         exit (iretn);
 
     // Create a thread for the data collection and service requests.
-    collect_data_thread = thread(collect_data_loop, std::ref(connection_query), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(collect_mode));
+    collect_data_thread = thread(collect_data_loop, std::ref(connection_live), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(collect_mode));
 //    file_walk_thread = thread(file_walk, std::ref(connection_file), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path));
     process_files_thread = thread(process_files, std::ref(connection_file), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "soh");
     process_commands_thread = thread(process_commands, std::ref(connection_command), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "exec");
