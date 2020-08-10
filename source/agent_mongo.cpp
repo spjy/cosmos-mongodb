@@ -38,7 +38,7 @@ static mongocxx::instance instance
 
 std::string execute(std::string cmd, std::string shell);
 void send_live(const std::string type, std::string &node_type, std::string &line);
-void collect_data_loop(mongocxx::client &connection_live, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &collect_mode);
+void collect_data_loop(mongocxx::client &connection_live, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &collect_mode, std::string &agent_path, std::string &shell);
 void file_walk(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
 void soh_walk(mongocxx::client &connection_file, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &file_walk_path);
 int32_t request_insert(char* request, char* response, Agent* agent);
@@ -802,7 +802,7 @@ int main(int argc, char** argv)
         exit (iretn);
 
     // Create a thread for the data collection and service requests.
-    collect_data_thread = thread(collect_data_loop, std::ref(connection_live), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(collect_mode));
+    collect_data_thread = thread(collect_data_loop, std::ref(connection_live), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(collect_mode), std::ref(agent_path), std::ref(shell));
 //    file_walk_thread = thread(file_walk, std::ref(connection_file), std::ref(database), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path));
     process_files_thread = thread(process_files, std::ref(connection_file), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "soh");
     process_commands_thread = thread(process_commands, std::ref(connection_command), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "exec");
@@ -833,7 +833,7 @@ int main(int argc, char** argv)
  * \param connection MongoDB connection instance
  */
 
-void collect_data_loop(mongocxx::client &connection_live, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &collect_mode)
+void collect_data_loop(mongocxx::client &connection_live, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &collect_mode, std::string &agent_path, std::string &shell)
 {
     if (collect_mode == "agent") {
         while (agent->running()) {
@@ -914,50 +914,91 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
         }
     } else if (collect_mode == "soh") {
         while (agent->running()) {
-            beatstruc soh;
 
-            soh = agent->find_agent("any", "exec");
+        std::string list;
+        list = execute("\"" + agent_path + " any exec soh\"", shell);
 
-            if (soh.utc == 0.) {
-                cout << "Error finding agent exec" << endl;
-            } else {
-                std::string response;
-                int resp = agent->send_request(soh, "soh", response, 3.);
+        std::string soh = json_extract_namedmember(list, "output");
 
-                std::string node = json_extract_namedmember(response, "node_name");
-                // If [NOK] is not found, valid response
-                if (resp > 0 && response.find("[NOK]") == std::string::npos && !node.empty()) {
-                    node.erase(0, 1);
-                    node.pop_back();
+        if (!soh.empty()) {
+            std::string node = json_extract_namedmember(list, "node_name");
+            // If [NOK] is not found, valid response
+            if (!node.empty()) {
+                node.erase(0, 1);
+                node.pop_back();
 
-                    if (whitelisted_node(included_nodes, excluded_nodes, node)) {
-                        auto any_collection = connection_live[realm]["any"];
-                        bsoncxx::document::view_or_value value;
+                if (whitelisted_node(included_nodes, excluded_nodes, node)) {
+                    auto any_collection = connection_live[realm]["any"];
+                    bsoncxx::document::view_or_value value;
 
-                        try {
-                            // Convert JSON into BSON object to prepare for database insertion
-                            value = bsoncxx::from_json(response);
+                    try {
+                        // Convert JSON into BSON object to prepare for database insertion
+                        value = bsoncxx::from_json(soh);
 
-                            try
-                            {
-                                // Insert BSON object into collection specified
-                                live_mtx.lock();
-                                auto any_insert = any_collection.insert_one(value);
-                                live_mtx.unlock();
+                        try
+                        {
+                            // Insert BSON object into collection specified
+                            live_mtx.lock();
+                            auto any_insert = any_collection.insert_one(value);
+                            live_mtx.unlock();
 
-                                cout << "WS SOH Live: Inserted adata " << node << endl;
+                            cout << "WS SOH Live: Inserted adata " << node << endl;
 
-                                send_live("WS Live", realm, response);
-                            } catch (const mongocxx::bulk_write_exception &err) {
-                                cout << "WS SOH Live: " << err.what() << endl;
-                            }
-                        } catch (const bsoncxx::exception &err) {
+                            send_live("WS Live", realm, soh);
+                        } catch (const mongocxx::bulk_write_exception &err) {
                             cout << "WS SOH Live: " << err.what() << endl;
                         }
+                    } catch (const bsoncxx::exception &err) {
+                        cout << "WS SOH Live: " << err.what() << endl;
                     }
                 }
-
             }
+        }
+//            beatstruc soh;
+
+//            soh = agent->find_agent("any", "exec");
+
+//            if (soh.utc == 0.) {
+//                cout << "Error finding agent exec" << endl;
+//            } else {
+//                std::string response;
+//                int resp = agent->send_request(soh, "soh", response, 3.);
+
+//                std::string node = json_extract_namedmember(response, "node_name");
+//                // If [NOK] is not found, valid response
+//                if (resp > 0 && response.find("[NOK]") == std::string::npos && !node.empty()) {
+//                    node.erase(0, 1);
+//                    node.pop_back();
+
+//                    if (whitelisted_node(included_nodes, excluded_nodes, node)) {
+//                        cout << response << endl;
+//                        auto any_collection = connection_live[realm]["any"];
+//                        bsoncxx::document::view_or_value value;
+
+//                        try {
+//                            // Convert JSON into BSON object to prepare for database insertion
+//                            value = bsoncxx::from_json(response);
+
+//                            try
+//                            {
+//                                // Insert BSON object into collection specified
+//                                live_mtx.lock();
+//                                auto any_insert = any_collection.insert_one(value);
+//                                live_mtx.unlock();
+
+//                                cout << "WS SOH Live: Inserted adata " << node << endl;
+
+//                                send_live("WS Live", realm, response);
+//                            } catch (const mongocxx::bulk_write_exception &err) {
+//                                cout << "WS SOH Live: " << err.what() << endl;
+//                            }
+//                        } catch (const bsoncxx::exception &err) {
+//                            cout << "WS SOH Live: " << err.what() << endl;
+//                        }
+//                    }
+//                }
+
+//            }
 
             COSMOS_SLEEP(5.);
         }
