@@ -18,18 +18,18 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
                 // First use reference to adata to check conditions
                 std::string *padata = &message.adata;
 
-                if (padata != NULL) {
+                if (padata == NULL) {
                     continue;
                 }
 
                 // If no content in adata, don't continue or write to database
-                if (!padata->empty() && padata->front() == '{' && padata->back() == '}') {
+                if (padata->empty() && padata->front() != '{' && padata->back() != '}') {
                     continue;
                 }
 
                 std::string *pjdata = &message.jdata;
 
-                if (pjdata != NULL) {
+                if (pjdata == NULL) {
                     continue;
                 }
 
