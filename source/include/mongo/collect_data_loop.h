@@ -18,65 +18,78 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
                 // First use reference to adata to check conditions
                 std::string *padata = &message.adata;
 
+                if (padata != NULL) {
+                    continue;
+                }
+
                 // If no content in adata, don't continue or write to database
                 if (!padata->empty() && padata->front() == '{' && padata->back() == '}') {
-                    // Extract node from jdata
-                    std::string node = json_extract_namedmember(message.jdata, "agent_node");
-                    std::string type = json_extract_namedmember(message.jdata, "agent_proc");
-                    std::string ip = json_extract_namedmember(message.jdata, "agent_addr");
+                    continue;
+                }
 
-                    if (!(node.empty()) && !(type.empty()) && !(ip.empty())) {
-                        // Remove leading and trailing quotes around node
-                        node.erase(0, 1);
-                        node.pop_back();
+                std::string *pjdata = &message.jdata;
 
-                        type.erase(0, 1);
-                        type.pop_back();
+                if (pjdata != NULL) {
+                    continue;
+                }
 
-                        ip.erase(0, 1);
-                        ip.pop_back();
+                // Extract node from jdata
+                std::string node = json_extract_namedmember(message.jdata, "agent_node");
+                std::string type = json_extract_namedmember(message.jdata, "agent_proc");
+                std::string ip = json_extract_namedmember(message.jdata, "agent_addr");
 
-                        std::string node_type = node + ":" + type;
+                if (!(node.empty()) && !(type.empty()) && !(ip.empty()))
+                {
+                    // Remove leading and trailing quotes around node
+                    node.erase(0, 1);
+                    node.pop_back();
 
-                        // Connect to the database and store in the collection of the node name
-                        if (whitelisted_node(included_nodes, excluded_nodes, node)) {
-                            auto any_collection = connection_live[realm]["any"];
-                            std::string response;
-                            mongocxx::options::find options; // store by node
+                    type.erase(0, 1);
+                    type.pop_back();
 
-                            bsoncxx::document::view_or_value value;
+                    ip.erase(0, 1);
+                    ip.pop_back();
 
-                            // Copy adata and manipulate string to add the agent_utc (date)
-                            std::string adata = message.adata;
+                    std::string node_type = node + ":" + type;
 
-                            if (!(adata.empty())) {
-                                adata.pop_back();
-                                adata.insert(adata.size(), ", \"node_utc\": " + std::to_string(message.meta.beat.utc));
-                                adata.insert(adata.size(), ", \"node_type\": \"" + node_type + "\"");
-                                adata.insert(adata.size(), ", \"node_ip\": \"" + ip + "\"}");
+                    // Connect to the database and store in the collection of the node name
+                    if (whitelisted_node(included_nodes, excluded_nodes, node)) {
+                        auto any_collection = connection_live[realm]["any"];
+                        std::string response;
+                        mongocxx::options::find options; // store by node
 
-                                try {
-                                    // Convert JSON into BSON object to prepare for database insertion
-                                    value = bsoncxx::from_json(adata);
+                        bsoncxx::document::view_or_value value;
 
-                                    try
-                                    {
-                                        // Insert BSON object into collection specified
-                                        live_mtx.lock();
-                                        auto any_insert = any_collection.insert_one(value);
-                                        live_mtx.unlock();
+                        // Copy adata and manipulate string to add the agent_utc (date)
+                        std::string adata = message.adata;
 
-                                        cout << "WS Live: Inserted adata " << node_type << endl;
+                        if (!(adata.empty())) {
+                            adata.pop_back();
+                            adata.insert(adata.size(), ", \"node_utc\": " + std::to_string(message.meta.beat.utc));
+                            adata.insert(adata.size(), ", \"node_type\": \"" + node_type + "\"");
+                            adata.insert(adata.size(), ", \"node_ip\": \"" + ip + "\"}");
 
-                                        if (type != "exec") {
-                                            send_live("WS Live", realm, adata);
-                                        }
-                                    } catch (const mongocxx::bulk_write_exception &err) {
-                                        cout << "WS Live: " << err.what() << endl;
+                            try {
+                                // Convert JSON into BSON object to prepare for database insertion
+                                value = bsoncxx::from_json(adata);
+
+                                try
+                                {
+                                    // Insert BSON object into collection specified
+                                    live_mtx.lock();
+                                    auto any_insert = any_collection.insert_one(value);
+                                    live_mtx.unlock();
+
+                                    cout << "WS Live: Inserted adata " << node_type << endl;
+
+                                    if (type != "exec") {
+                                        send_live("WS Live", realm, adata);
                                     }
-                                } catch (const bsoncxx::exception &err) {
+                                } catch (const mongocxx::bulk_write_exception &err) {
                                     cout << "WS Live: " << err.what() << endl;
                                 }
+                            } catch (const bsoncxx::exception &err) {
+                                cout << "WS Live: " << err.what() << endl;
                             }
                         }
                     }
@@ -86,70 +99,25 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
         }
     } else if (collect_mode == "soh") {
         while (agent->running()) {
+            std::string list;
+            list = execute("\"" + agent_path + " neutron1 exec soh\"", shell);
 
-            //        std::string list;
-            //        list = execute("\"" + agent_path + " any exec soh\"", shell);
+            std::string soh = json_extract_namedmember(list, "output");
 
-            //        std::string soh = json_extract_namedmember(list, "output");
-
-            //        if (!soh.empty()) {
-            //            std::string node = json_extract_namedmember(list, "node_name");
-            //            // If [NOK] is not found, valid response
-            //            if (!node.empty()) {
-            //                node.erase(0, 1);
-            //                node.pop_back();
-
-            //                if (whitelisted_node(included_nodes, excluded_nodes, node)) {
-            //                    auto any_collection = connection_live[realm]["any"];
-            //                    bsoncxx::document::view_or_value value;
-
-            //                    try {
-            //                        // Convert JSON into BSON object to prepare for database insertion
-            //                        value = bsoncxx::from_json(soh);
-
-            //                        try
-            //                        {
-            //                            // Insert BSON object into collection specified
-            //                            live_mtx.lock();
-            //                            auto any_insert = any_collection.insert_one(value);
-            //                            live_mtx.unlock();
-
-            //                            cout << "WS SOH Live: Inserted adata " << node << endl;
-
-            //                            send_live("WS Live", realm, soh);
-            //                        } catch (const mongocxx::bulk_write_exception &err) {
-            //                            cout << "WS SOH Live: " << err.what() << endl;
-            //                        }
-            //                    } catch (const bsoncxx::exception &err) {
-            //                        cout << "WS SOH Live: " << err.what() << endl;
-            //                    }
-            //                }
-            //            }
-            //        }
-            beatstruc soh;
-
-            soh = agent->find_agent("any", "exec");
-
-            if (soh.utc == 0.) {
-                cout << "Error finding agent exec" << endl;
-            } else {
-                std::string response;
-                int resp = agent->send_request(soh, "soh", response, 3.);
-
-                std::string node = json_extract_namedmember(response, "node_name");
+            if (!soh.empty()) {
+                std::string node = json_extract_namedmember(list, "node_name");
                 // If [NOK] is not found, valid response
-                if (resp > 0 && response.find("[NOK]") == std::string::npos && !node.empty()) {
+                if (!node.empty()) {
                     node.erase(0, 1);
                     node.pop_back();
 
                     if (whitelisted_node(included_nodes, excluded_nodes, node)) {
-                        cout << response << endl;
                         auto any_collection = connection_live[realm]["any"];
                         bsoncxx::document::view_or_value value;
 
                         try {
                             // Convert JSON into BSON object to prepare for database insertion
-                            value = bsoncxx::from_json(response);
+                            value = bsoncxx::from_json(soh);
 
                             try
                             {
@@ -160,7 +128,7 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
 
                                 cout << "WS SOH Live: Inserted adata " << node << endl;
 
-                                send_live("WS Live", realm, response);
+                                send_live("WS Live", realm, soh);
                             } catch (const mongocxx::bulk_write_exception &err) {
                                 cout << "WS SOH Live: " << err.what() << endl;
                             }
@@ -169,8 +137,52 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
                         }
                     }
                 }
-
             }
+//            beatstruc soh;
+
+//            soh = agent->find_agent("any", "exec");
+
+//            if (soh.utc == 0.) {
+//                cout << "Error finding agent exec" << endl;
+//            } else {
+//                std::string response;
+//                int resp = agent->send_request(soh, "soh", response, 3.);
+
+//                std::string node = json_extract_namedmember(response, "node_name");
+//                // If [NOK] is not found, valid response
+//                if (resp > 0 && response.find("[NOK]") == std::string::npos && !node.empty()) {
+//                    node.erase(0, 1);
+//                    node.pop_back();
+
+//                    if (whitelisted_node(included_nodes, excluded_nodes, node)) {
+//                        cout << response << endl;
+//                        auto any_collection = connection_live[realm]["any"];
+//                        bsoncxx::document::view_or_value value;
+
+//                        try {
+//                            // Convert JSON into BSON object to prepare for database insertion
+//                            value = bsoncxx::from_json(response);
+
+//                            try
+//                            {
+//                                // Insert BSON object into collection specified
+//                                live_mtx.lock();
+//                                auto any_insert = any_collection.insert_one(value);
+//                                live_mtx.unlock();
+
+//                                cout << "WS SOH Live: Inserted adata " << node << endl;
+
+//                                send_live("WS Live", realm, response);
+//                            } catch (const mongocxx::bulk_write_exception &err) {
+//                                cout << "WS SOH Live: " << err.what() << endl;
+//                            }
+//                        } catch (const bsoncxx::exception &err) {
+//                            cout << "WS SOH Live: " << err.what() << endl;
+//                        }
+//                    }
+//                }
+
+//            }
 
             COSMOS_SLEEP(5.);
         }
