@@ -40,7 +40,7 @@ RUN cmake -DCMAKE_BUILD_TYPE=Release -DBSONCXX_POLY_USE_BOOST=1 -DCMAKE_INSTALL_
 FROM drivers AS agentmongo
 
 # Agent Mongo Installation
-RUN git clone https://github.com/spjy/cosmos-mongodb.git /root/cosmos/source/tools/mongodb
+COPY . /root/cosmos/source/tools/mongodb
 WORKDIR /root/cosmos/source/tools/mongodb/agent_build
 RUN cmake ../source \
   && make -j4
