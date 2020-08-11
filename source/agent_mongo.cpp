@@ -36,6 +36,7 @@
 #include <mongo/maintain_agent_list.h>
 #include <mongo/maintain_file_list.h>
 #include <mongo/collect_data_loop.h>
+#include <mongo/maintain_event_queue.h>
 
 // TODO: change include paths so that we can make reference to cosmos using a full path
 // example
@@ -50,6 +51,7 @@ static thread process_files_thread;
 static thread process_commands_thread;
 static thread maintain_agent_list_thread;
 static thread maintain_file_list_thread;
+static thread maintain_event_queue_thread;
 mongocxx::client connection_file;
 mongocxx::client connection_command;
 
@@ -803,6 +805,7 @@ int main(int argc, char** argv)
     process_commands_thread = thread(process_commands, std::ref(connection_command), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "exec");
     maintain_agent_list_thread = thread(maintain_agent_list);
     maintain_file_list_thread = thread(maintain_file_list, std::ref(included_nodes), std::ref(excluded_nodes), std::ref(agent_path), std::ref(shell), node);
+    maintain_event_queue_thread = thread(maintain_event_queue, std::ref(agent_path), std::ref(shell));
 
     while(agent->running()) {
         // Sleep for 1 sec
@@ -815,6 +818,7 @@ int main(int argc, char** argv)
     process_commands_thread.join();
     maintain_agent_list_thread.join();
     maintain_file_list_thread.join();
+    maintain_event_queue_thread.join();
     query_thread.join();
     ws_live_thread.join();
 
