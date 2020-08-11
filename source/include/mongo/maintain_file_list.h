@@ -23,6 +23,10 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
 
         list = execute("\"" + agent_path + " " + hostnode + " file list_outgoing_json\"", shell);
 
+        if (list.empty()) {
+            continue;
+        }
+
         try
         {
             bsoncxx::document::value json = bsoncxx::from_json(list);
