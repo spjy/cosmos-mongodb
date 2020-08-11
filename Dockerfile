@@ -1,4 +1,4 @@
-FROM ubuntu:20.04 AS setup
+FROM ubuntu:19.04 AS setup
 
 # Install apt packages
 RUN apt-get update
