@@ -1,4 +1,4 @@
-FROM ubuntu:19.04 AS setup
+FROM ubuntu:20.04 AS setup
 
 # Install apt packages
 RUN apt-get update
@@ -44,3 +44,5 @@ COPY . /root/cosmos/source/tools/mongodb
 WORKDIR /root/cosmos/source/tools/mongodb/agent_build
 RUN cmake ../source \
   && make -j4
+
+CMD ["/root/cosmos/tools/agent_mongo"]
