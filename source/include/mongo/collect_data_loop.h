@@ -100,7 +100,7 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
     } else if (collect_mode == "soh") {
         while (agent->running()) {
             std::string list;
-            list = execute("\"" + agent_path + " neutron1 exec soh\"", shell);
+            list = execute("\"" + agent_path + " any exec soh\"", shell);
 
             std::string soh = json_extract_namedmember(list, "output");
 
