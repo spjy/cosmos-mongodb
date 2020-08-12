@@ -225,8 +225,6 @@ void send_live(const std::string type, std::string &node_type, std::string &line
 
     client.on_open = [type, &line, &node_type](std::shared_ptr<WsClient::Connection> connection)
     {
-        cout << type << ": Broadcasted adata for " << node_type << endl;
-
         connection->send(line);
 
         connection->send_close(1000);

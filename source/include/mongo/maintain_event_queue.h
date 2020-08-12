@@ -31,7 +31,7 @@ void maintain_event_queue(std::string &agent_list, std::string &shell) {
                 send_live("WS Event Queue", node_type, response);
             }
         } catch (const bsoncxx::exception &err) {
-            cout << "WS Event Queue: Error converting to BSON from JSON" << err.what() << endl;
+            cout << err.what() << endl;
         }
 
         COSMOS_SLEEP(5.);
