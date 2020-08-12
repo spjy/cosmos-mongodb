@@ -714,7 +714,7 @@ int main(int argc, char** argv)
                     }
 
                     // loop through devices, add
-                    for (int i = 0; i < num_pieces; i++) {
+                    for (uint i = 0; i < num_pieces; i++) {
                         nodeproc_list << "\"" << i << "\":";
 
                         int didx = struc->device[i].all.didx;
