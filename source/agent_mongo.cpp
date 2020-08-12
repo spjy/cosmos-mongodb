@@ -806,7 +806,7 @@ int main(int argc, char** argv)
     });
 
     // Create a thread for the data collection and service requests.
-    collect_data_thread = thread(collect_data_loop, std::ref(connection_live), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(collect_mode), std::ref(agent_path), std::ref(shell));
+    collect_data_thread = thread(collect_data_loop, std::ref(connection_live), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(collect_mode), std::ref(agent_path), std::ref(shell), std::ref(client), std::ref(token));
     process_files_thread = thread(process_files, std::ref(connection_file), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "soh");
     process_commands_thread = thread(process_commands, std::ref(connection_command), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "exec");
     maintain_agent_list_thread = thread(maintain_agent_list);
