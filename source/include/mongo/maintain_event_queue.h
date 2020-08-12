@@ -15,7 +15,11 @@ void maintain_event_queue(std::string &agent_list, std::string &shell) {
         std::string node_type = "event_queue";
 
         if (!list.empty()) {
-            send_live("WS Event Queue", node_type, list);
+            list.pop_back();
+
+            std::string response = "{\"queue\":\"" + escape_json(list) + "\", \"node_type\": \"event_queue\"}";
+
+            send_live("WS Event Queue", node_type, response);
         }
 
         COSMOS_SLEEP(5.);
