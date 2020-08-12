@@ -9,8 +9,15 @@ void maintain_event_queue(std::string &agent_list, std::string &shell) {
     while (agent->running()) {
 
         std::string list;
+        beatstruc soh;
 
-        list = execute("\"" + agent_list + " neutron1 exec get_event\"", shell);
+        soh = agent->find_agent("any", "exec");
+
+        if (soh.utc == 0.) {
+            continue;
+        }
+
+        list = execute("\"" + agent_list + " any exec get_event\"", shell);
 
         try {
             auto json = bsoncxx::from_json(list);

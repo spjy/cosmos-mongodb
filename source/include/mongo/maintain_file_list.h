@@ -17,6 +17,15 @@ void maintain_file_list(std::vector<std::string> &included_nodes, std::vector<st
     while (agent->running())
     {
         std::string list;
+
+        beatstruc soh;
+
+        // Check if agent exec is running
+        soh = agent->find_agent("any", "exec");
+        if (soh.utc == 0.) {
+            continue;
+        }
+
         std::string response = "{\"node_type\": \"file\", \"outgoing\": {";
 
         WsClient client("localhost:8081/live/file_list");
