@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <string.h>
 #include <cstring>
+#include <ctime>
 #include <iterator>
 #include <iostream>
 #include <fstream>
@@ -63,11 +64,13 @@
 #include <server_ws.hpp>
 #include <client_ws.hpp>
 #include <server_http.hpp>
+#include <client_https.hpp>
 
 using WsServer = SimpleWeb::SocketServer<SimpleWeb::WS>;
 using WsClient = SimpleWeb::SocketClient<SimpleWeb::WS>;
 
 using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
+using HttpsClient = SimpleWeb::Client<SimpleWeb::HTTPS>;
 
 using namespace bsoncxx;
 using bsoncxx::builder::basic::kvp;

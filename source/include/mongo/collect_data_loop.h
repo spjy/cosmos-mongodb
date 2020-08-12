@@ -3,13 +3,17 @@
 
 #include <mongo/agent_mongo.h>
 
-void collect_data_loop(mongocxx::client &connection_live, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &collect_mode, std::string &agent_path, std::string &shell);
+void collect_data_loop(mongocxx::client &connection_live, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &collect_mode, std::string &agent_path, std::string &shell, HttpsClient &client, std::string &token);
 
-void collect_data_loop(mongocxx::client &connection_live, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &collect_mode, std::string &agent_path, std::string &shell)
+void collect_data_loop(mongocxx::client &connection_live, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &collect_mode, std::string &agent_path, std::string &shell, HttpsClient &client, std::string &token)
 {
+    time_t startTime = time(NULL);
+    time_t currentTime;
+
     if (collect_mode == "agent") {
         while (agent->running()) {
             int32_t iretn;
+            time(&currentTime);
 
             Agent::messstruc message;
             iretn = agent->readring(message, Agent::AgentMessage::ALL, 1., Agent::Where::TAIL);
@@ -54,6 +58,18 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
 
                     // Connect to the database and store in the collection of the node name
                     if (whitelisted_node(included_nodes, excluded_nodes, node)) {
+                        if (token.length() > 10 && difftime(currentTime, startTime) >= 1800) {
+                            std::string json_string = "{\"block\": [{ \"type\": { \"text\": \"mrkdwn\", \"text\": \"Activity detected after 30 minutes! ```" + message.jdata + "```\" } }, { \"type\": \"divider\" }]}";
+                            try {
+                                cout << "POST request to http://hooks.slack.com" << endl;
+                                auto response = client.request("POST", token, json_string);
+                                cout << "Response content: " << response->content.string() << endl;
+                            }
+                            catch(const SimpleWeb::system_error &e) {
+                                cout << "Client request error: " << e.what() << endl;
+                            }
+                        }
+
                         auto any_collection = connection_live[realm]["any"];
                         std::string response;
                         mongocxx::options::find options; // store by node
@@ -93,6 +109,7 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
                             }
                         }
                     }
+                    time(&startTime);
                 }
             }
             COSMOS_SLEEP(1.);
@@ -100,6 +117,8 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
     } else if (collect_mode == "soh") {
         while (agent->running()) {
             std::string list;
+            time(&currentTime);
+
             list = execute("\"" + agent_path + " any exec soh\"", shell);
 
             std::string soh = json_extract_namedmember(list, "output");
@@ -112,6 +131,18 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
                     node.pop_back();
 
                     if (whitelisted_node(included_nodes, excluded_nodes, node)) {
+                        if (token.length() > 10 && difftime(currentTime, startTime) >= 1800) {
+                            std::string json_string = "{\"block\": [{ \"type\": { \"text\": \"mrkdwn\", \"text\": \"Activity detected after 30 minutes! ```" + message.jdata + "```\" } }, { \"type\": \"divider\" }]}";
+                            try {
+                                cout << "POST request to http://hooks.slack.com" << endl;
+                                auto response = client.request("POST", token, json_string);
+                                cout << "Response content: " << response->content.string() << endl;
+                            }
+                            catch(const SimpleWeb::system_error &e) {
+                                cout << "Client request error: " << e.what() << endl;
+                            }
+                        }
+
                         auto any_collection = connection_live[realm]["any"];
                         bsoncxx::document::view_or_value value;
 
@@ -136,6 +167,7 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
                             cout << "WS SOH Live: " << err.what() << endl;
                         }
                     }
+                    time(&startTime);
                 }
             }
 //            beatstruc soh;
