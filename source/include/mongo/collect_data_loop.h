@@ -8,11 +8,12 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
 void collect_data_loop(mongocxx::client &connection_live, std::string &realm, std::vector<std::string> &included_nodes, std::vector<std::string> &excluded_nodes, std::string &collect_mode, std::string &agent_path, std::string &shell, HttpsClient &client, std::string &token)
 {
     time_t startTime = time(NULL);
+    time_t currentTime;
 
     if (collect_mode == "agent") {
         while (agent->running()) {
             int32_t iretn;
-            time_t currentTime = time(NULL);
+            time(&currentTime);
 
             Agent::messstruc message;
             iretn = agent->readring(message, Agent::AgentMessage::ALL, 1., Agent::Where::TAIL);
@@ -54,7 +55,6 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
                     ip.pop_back();
 
                     std::string node_type = node + ":" + type;
-
 
                     // Connect to the database and store in the collection of the node name
                     if (whitelisted_node(included_nodes, excluded_nodes, node)) {
@@ -117,6 +117,8 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
     } else if (collect_mode == "soh") {
         while (agent->running()) {
             std::string list;
+            time(&currentTime);
+
             list = execute("\"" + agent_path + " any exec soh\"", shell);
 
             std::string soh = json_extract_namedmember(list, "output");
@@ -165,7 +167,7 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
                             cout << "WS SOH Live: " << err.what() << endl;
                         }
                     }
-                    time(&currentTime);
+                    time(&startTime);
                 }
             }
 //            beatstruc soh;

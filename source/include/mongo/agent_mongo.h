@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <string.h>
 #include <cstring>
+#include <ctime>
 #include <iterator>
 #include <iostream>
 #include <fstream>
