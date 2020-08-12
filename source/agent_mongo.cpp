@@ -66,6 +66,7 @@ int main(int argc, char** argv)
     std::string mongo_server = "mongodb://localhost:27017/";
     std::string realm = "null"; // encompassing nodes
     std::string collect_mode = "soh"; // soh or agent
+    std::string token = "/services/";
 
     char hostname[60];
     gethostname(hostname, sizeof (hostname));
@@ -105,6 +106,9 @@ int main(int argc, char** argv)
             }
             else if (strncmp(argv[i], "--collect_mode", sizeof(argv[i]) / sizeof(argv[i][0])) == 0) {
                 collect_mode = argv[i + 1];
+            }
+            else if (strncmp(argv[i], "--slack_token", sizeof(argv[i]) / sizeof(argv[i][0])) == 0) {
+                token.insert(token.size(), argv[i + 1]);
             }
         }
     }
@@ -207,6 +211,8 @@ int main(int argc, char** argv)
     // Create REST API server
     HttpServer query;
     query.config.port = 8082;
+
+    HttpsClient client("hooks.slack.com");
 
     // Set header fields
     SimpleWeb::CaseInsensitiveMultimap header;
