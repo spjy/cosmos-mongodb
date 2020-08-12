@@ -59,7 +59,7 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
                     // Connect to the database and store in the collection of the node name
                     if (whitelisted_node(included_nodes, excluded_nodes, node)) {
                         if (token.length() > 10 && difftime(currentTime, startTime) >= 1800) {
-                            std::string json_string = "{\"block\": [{ \"type\": { \"text\": \"mrkdwn\", \"text\": \"Activity detected after 30 minutes! ```" + message.jdata + "```\" } }, { \"type\": \"divider\" }]}";
+                            std::string json_string = "{\"blocks\":[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"Activity detected after 30 minutes!\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"```" + message.jdata + "```\"}},{\"type\":\"divider\"}]}";
                             try {
                                 cout << "POST request to http://hooks.slack.com" << endl;
                                 auto response = client.request("POST", token, json_string);
