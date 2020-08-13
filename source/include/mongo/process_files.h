@@ -137,8 +137,6 @@ void process_files(mongocxx::client &connection_file, std::string &realm, std::v
                                                     file_mtx.lock();
                                                     auto any_insert = any_collection.insert_one(value);
                                                     file_mtx.unlock();
-
-                                                    send_live("File", node_type, line);
                                                 }
                                                 catch (const mongocxx::bulk_write_exception &err)
                                                 {
