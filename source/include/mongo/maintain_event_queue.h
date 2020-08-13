@@ -17,7 +17,7 @@ void maintain_event_queue(std::string &agent_list, std::string &shell) {
             continue;
         }
 
-        list = execute("\"" + agent_list + " any exec get_event\"", shell);
+        list = execute("\"" + agent_list + " any exec getcommand\"", shell);
 
         try {
             auto json = bsoncxx::from_json(list);
