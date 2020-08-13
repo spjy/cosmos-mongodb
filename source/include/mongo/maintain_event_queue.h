@@ -19,21 +19,15 @@ void maintain_event_queue(std::string &agent_list, std::string &shell) {
 
         list = execute("\"" + agent_list + " any exec getcommand\"", shell);
 
-        try {
-            auto json = bsoncxx::from_json(list);
-            std::string node_type = "event_queue";
+        std::string node_type = "event_queue";
 
-            if (!list.empty()) {
-                list.pop_back();
+        if (!list.empty()) {
+            list.pop_back();
 
-                std::string response = "{\"queue\":\"" + escape_json(list) + "\", \"node_type\": \"event_queue\"}";
+            std::string response = "{\"queue\":\"" + escape_json(list) + "\", \"node_type\": \"event_queue\"}";
 
-                send_live("WS Event Queue", node_type, response);
-            }
-        } catch (const bsoncxx::exception &err) {
-            cout << err.what() << endl;
+            send_live("WS Event Queue", node_type, response);
         }
-
         COSMOS_SLEEP(5.);
     }
 }
