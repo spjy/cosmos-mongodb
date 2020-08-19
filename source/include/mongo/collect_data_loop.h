@@ -58,18 +58,6 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
 
                     // Connect to the database and store in the collection of the node name
                     if (whitelisted_node(included_nodes, excluded_nodes, node)) {
-                        if (token.length() > 10 && difftime(currentTime, startTime) >= 1800) {
-                            std::string json_string = "{\"blocks\":[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"Activity detected after 30 minutes!\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"```" + message.jdata + "```\"}},{\"type\":\"divider\"}]}";
-                            try {
-                                cout << "POST request to http://hooks.slack.com" << endl;
-                                auto response = client.request("POST", token, json_string);
-                                cout << "Response content: " << response->content.string() << endl;
-                            }
-                            catch(const SimpleWeb::system_error &e) {
-                                cout << "Client request error: " << e.what() << endl;
-                            }
-                        }
-
                         auto any_collection = connection_live[realm]["any"];
                         std::string response;
                         mongocxx::options::find options; // store by node
@@ -84,6 +72,19 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
                             adata.insert(adata.size(), ", \"node_utc\": " + std::to_string(message.meta.beat.utc));
                             adata.insert(adata.size(), ", \"node_type\": \"" + node_type + "\"");
                             adata.insert(adata.size(), ", \"node_ip\": \"" + ip + "\"}");
+
+                            if (token.length() > 10 && difftime(currentTime, startTime) >= 1800) {
+                                time(&startTime);
+                                std::string json_string = "{\"blocks\":[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"Activity detected after 30 minutes!\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"```" + adata + "```\"}},{\"type\":\"divider\"}]}";
+                                try {
+                                    cout << "POST request to http://hooks.slack.com" << endl;
+                                    auto response = client.request("POST", token, json_string);
+                                    cout << "Response content: " << response->content.string() << endl;
+                                }
+                                catch(const SimpleWeb::system_error &e) {
+                                    cout << "Client request error: " << e.what() << endl;
+                                }
+                            }
 
                             try {
                                 // Convert JSON into BSON object to prepare for database insertion
@@ -109,7 +110,6 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
                             }
                         }
                     }
-                    time(&startTime);
                 }
             }
             COSMOS_SLEEP(1.);
@@ -132,7 +132,8 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
 
                     if (whitelisted_node(included_nodes, excluded_nodes, node)) {
                         if (token.length() > 10 && difftime(currentTime, startTime) >= 1800) {
-                            std::string json_string = "{\"blocks\":[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"Activity detected after 30 minutes!\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"```" + list + "```\"}},{\"type\":\"divider\"}]}";
+                            time(&startTime);
+                            std::string json_string = "{\"blocks\":[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"Activity detected sometime after 30 minutes!\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"```" + soh + "```\"}},{\"type\":\"divider\"}]}";
                             try {
                                 cout << "POST request to http://hooks.slack.com" << endl;
                                 auto response = client.request("POST", token, json_string);
@@ -167,7 +168,6 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
                             cout << "WS SOH Live: " << err.what() << endl;
                         }
                     }
-                    time(&startTime);
                 }
             }
 //            beatstruc soh;
