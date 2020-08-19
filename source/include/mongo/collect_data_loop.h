@@ -75,7 +75,7 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
 
                             if (token.length() > 10 && difftime(currentTime, startTime) >= 1800) {
                                 time(&startTime);
-                                std::string json_string = "{\"blocks\":[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"Activity detected after 30 minutes!\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"```" + adata + "```\"}},{\"type\":\"divider\"}]}";
+                                std::string json_string = "{\"blocks\":[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"Activity detected after 30 minutes!\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"```" + escape_json(adata) + "```\"}},{\"type\":\"divider\"}]}";
                                 try {
                                     cout << "POST request to http://hooks.slack.com" << endl;
                                     auto response = client.request("POST", token, json_string);
@@ -133,7 +133,7 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
                     if (whitelisted_node(included_nodes, excluded_nodes, node)) {
                         if (token.length() > 10 && difftime(currentTime, startTime) >= 1800) {
                             time(&startTime);
-                            std::string json_string = "{\"blocks\":[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"Activity detected sometime after 30 minutes!\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"```" + soh + "```\"}},{\"type\":\"divider\"}]}";
+                            std::string json_string = "{\"blocks\":[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"Activity detected sometime after 30 minutes!\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"```" + escape_json(soh) + "```\"}},{\"type\":\"divider\"}]}";
                             try {
                                 cout << "POST request to http://hooks.slack.com" << endl;
                                 auto response = client.request("POST", token, json_string);
