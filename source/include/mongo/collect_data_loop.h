@@ -73,7 +73,7 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
                             adata.insert(adata.size(), ", \"node_type\": \"" + node_type + "\"");
                             adata.insert(adata.size(), ", \"node_ip\": \"" + ip + "\"}");
 
-                            if (token.length() > 10 && difftime(currentTime, startTime) >= 1800) {
+                            if (token.length() > 10 && difftime(currentTime, startTime) >= 1200) {
                                 time(&startTime);
                                 std::string json_string = "{\"blocks\":[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"Activity detected after 30 minutes!\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"```" + escape_json(adata) + "```\"}},{\"type\":\"divider\"}]}";
                                 try {
@@ -131,7 +131,7 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
                     node.pop_back();
 
                     if (whitelisted_node(included_nodes, excluded_nodes, node)) {
-                        if (token.length() > 10 && difftime(currentTime, startTime) >= 1800) {
+                        if (token.length() > 10 && difftime(currentTime, startTime) >= 1200) {
                             time(&startTime);
                             std::string json_string = "{\"blocks\":[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"Activity detected sometime after 30 minutes!\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"```" + escape_json(soh) + "```\"}},{\"type\":\"divider\"}]}";
                             try {
