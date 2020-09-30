@@ -33,10 +33,8 @@
 #include <mongo/agent_mongo.h>
 #include <mongo/process_files.h>
 #include <mongo/process_commands.h>
-#include <mongo/maintain_agent_list.h>
-#include <mongo/maintain_file_list.h>
+#include <mongo/maintain_data.h>
 #include <mongo/collect_data_loop.h>
-#include <mongo/maintain_event_queue.h>
 
 // TODO: change include paths so that we can make reference to cosmos using a full path
 // example
@@ -49,9 +47,7 @@ static thread collect_data_thread;
 static thread soh_walk_thread;
 static thread process_files_thread;
 static thread process_commands_thread;
-static thread maintain_agent_list_thread;
-static thread maintain_file_list_thread;
-static thread maintain_event_queue_thread;
+static thread maintain_data_thread;
 mongocxx::client connection_file;
 mongocxx::client connection_command;
 
@@ -330,13 +326,20 @@ int main(int argc, char** argv)
     };
 
     // Query agent executable { "command": "agent node proc help" }
-    query.resource["^/command$"]["POST"] = [&shell, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
+    query.resource["^/command$"]["POST"] = [&agent_path, &shell, &header](std::shared_ptr<HttpServer::Response> resp, std::shared_ptr<HttpServer::Request> request) {
         header.emplace("Content-Type", "text/plain");
 
         std::string message = request->content.string();
         std::string command = json_extract_namedmember(message, "command");
+        std::string type = json_extract_namedmember(message, "type"); // agent or fs
 
-        std::string result = execute(command, shell);
+        std::string result;
+
+        if (type == "cosmos") {
+            result = execute(agent_path + " " + command, shell);
+        } else {
+            result = execute(command, shell);
+        }
 
         resp->write(result, header);
     };
@@ -809,9 +812,7 @@ int main(int argc, char** argv)
     collect_data_thread = thread(collect_data_loop, std::ref(connection_live), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(collect_mode), std::ref(agent_path), std::ref(shell), std::ref(client), std::ref(token));
     process_files_thread = thread(process_files, std::ref(connection_file), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "soh");
     process_commands_thread = thread(process_commands, std::ref(connection_command), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "exec");
-    maintain_agent_list_thread = thread(maintain_agent_list);
-    maintain_file_list_thread = thread(maintain_file_list, std::ref(included_nodes), std::ref(excluded_nodes), std::ref(agent_path), std::ref(shell), node);
-    maintain_event_queue_thread = thread(maintain_event_queue, std::ref(agent_path), std::ref(shell));
+    maintain_data_thread = thread(maintain_data, std::ref(agent_path), std::ref(shell), std::ref(included_nodes), std::ref(excluded_nodes), node);
 
     while(agent->running()) {
         // Sleep for 1 sec
@@ -822,9 +823,7 @@ int main(int argc, char** argv)
     collect_data_thread.join();
     process_files_thread.join();
     process_commands_thread.join();
-    maintain_agent_list_thread.join();
-    maintain_file_list_thread.join();
-    maintain_event_queue_thread.join();
+    maintain_data_thread.join();
     query_thread.join();
     ws_live_thread.join();
 
