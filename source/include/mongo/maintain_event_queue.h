@@ -3,32 +3,22 @@
 
 #include <mongo/agent_mongo.h>
 
-void maintain_event_queue(std::string &agent_list, std::string &shell);
+void maintain_event_queue(std::string &agent_path, std::string &shell);
 
-void maintain_event_queue(std::string &agent_list, std::string &shell) {
-    while (agent->running()) {
+void maintain_event_queue(std::string &agent_path, std::string &shell) {
+    std::string list;
+    beatstruc soh;
 
-        std::string list;
-        beatstruc soh;
+    list = execute("\"" + agent_path + " any exec getcommand\"", shell);
 
-        soh = agent->find_agent("any", "exec");
+    std::string node_type = "event_queue";
 
-        if (soh.utc == 0.) {
-            continue;
-        }
+    if (!list.empty()) {
+        list.pop_back();
 
-        list = execute("\"" + agent_list + " any exec getcommand\"", shell);
+        std::string response = "{\"queue\":\"" + escape_json(list) + "\", \"node_type\": \"event_queue\"}";
 
-        std::string node_type = "event_queue";
-
-        if (!list.empty()) {
-            list.pop_back();
-
-            std::string response = "{\"queue\":\"" + escape_json(list) + "\", \"node_type\": \"event_queue\"}";
-
-            send_live("WS Event Queue", node_type, response);
-        }
-        COSMOS_SLEEP(5.);
+        send_live("WS Event Queue", node_type, response);
     }
 }
 
