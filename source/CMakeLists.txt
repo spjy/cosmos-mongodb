@@ -21,7 +21,6 @@ set(COSMOS_LIBS
 find_package(libmongocxx REQUIRED)
 find_package(libbsoncxx REQUIRED)
 find_package(OpenSSL REQUIRED)
-find_package(Boost COMPONENTS system REQUIRED)
 
 # -----------------------------------------------
 # Windows specific
@@ -42,7 +41,6 @@ set_target_properties(agent_mongo PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${PROJECT_
 
 target_include_directories(agent_mongo
   PRIVATE ${LIBMONGOCXX_INCLUDE_DIRS} ${LIBBSONCXX_INCLUDE_DIRS} ${PROJECT_SOURCE_DIR}/include
-  ${Boost_INCLUDE_DIR}
 )
 
 target_link_libraries(agent_mongo
@@ -52,7 +50,6 @@ target_link_libraries(agent_mongo
   ${LIBBSONCXX_LIBRARIES}
   OpenSSL::SSL
   OpenSSL::Crypto
-  ${Boost_SYSTEM_LIBRARY}
   stdc++fs
 )
 
