@@ -34,6 +34,8 @@ link_directories(${LIBMONGOCXX_INCLUDE_DIRS})
 link_directories(${LIBBSONCXX_INCLUDE_DIRS})
 
 include_directories(${PROJECT_SOURCE_DIR}/include)
+include_directories(${PROJECT_SOURCE_DIR}/include/uWS)
+include_directories(${PROJECT_SOURCE_DIR}/include/uSocket)
 message(${LIBBSONCXX_INCLUDE_DIRS})
 add_executable(agent_mongo agent_mongo.cpp)
 set_target_properties(agent_mongo PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/../../../../tools)
