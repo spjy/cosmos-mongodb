@@ -52,31 +52,31 @@ void maintain_agent_list()
 
         response.insert(response.size(), "]}");
 
-        WsClient client("localhost:8081/live/list");
+//        WsClient client("localhost:8081/live/list");
 
-        client.on_open = [&response](std::shared_ptr<WsClient::Connection> connection)
-        {
-            cout << "WS Agent Live: Broadcasted updated agent list" << endl;
+//        client.on_open = [&response](std::shared_ptr<WsClient::Connection> connection)
+//        {
+//            cout << "WS Agent Live: Broadcasted updated agent list" << endl;
 
-            connection->send(response);
+//            connection->send(response);
 
-            connection->send_close(1000);
-        };
+//            connection->send_close(1000);
+//        };
 
-        client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
-        {
-            if (status != 1000) {
-                cout << "WS Live: Closed connection with status code " << status << endl;
-            }
-        };
+//        client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
+//        {
+//            if (status != 1000) {
+//                cout << "WS Live: Closed connection with status code " << status << endl;
+//            }
+//        };
 
-        // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
-        client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
-        {
-            cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
-        };
+//        // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
+//        client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
+//        {
+//            cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
+//        };
 
-        client.start();
+//        client.start();
 
         COSMOS_SLEEP(5);
     }

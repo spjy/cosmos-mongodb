@@ -221,29 +221,29 @@ void send_live(const std::string type, std::string &node_type, std::string &line
 
     std::string ip = "localhost:8081/live/" + node_type;
     // Websocket client here to broadcast to the WS server, then the WS server broadcasts to all clients that are listening
-    WsClient client(ip);
+//    WsClient client(ip);
 
-    client.on_open = [type, &line, &node_type](std::shared_ptr<WsClient::Connection> connection)
-    {
-        connection->send(line);
+//    client.on_open = [type, &line, &node_type](std::shared_ptr<WsClient::Connection> connection)
+//    {
+//        connection->send(line);
 
-        connection->send_close(1000);
-    };
+//        connection->send_close(1000);
+//    };
 
-    client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
-    {
-        if (status != 1000) {
-            cout << "WS Live: Closed connection with status code " << status << endl;
-        }
-    };
+//    client.on_close = [](std::shared_ptr<WsClient::Connection> /*connection*/, int status, const std::string & /*reason*/)
+//    {
+//        if (status != 1000) {
+//            cout << "WS Live: Closed connection with status code " << status << endl;
+//        }
+//    };
 
-    // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
-    client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
-    {
-        cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
-    };
+//    // See http://www.boost.org/doc/libs/1_55_0/doc/html/boost_asio/reference.html, Error Codes for error code meanings
+//    client.on_error = [](std::shared_ptr<WsClient::Connection> /*connection*/, const SimpleWeb::error_code &ec)
+//    {
+//        cout << "WS Live: Error: " << ec << ", error message: " << ec.message() << endl;
+//    };
 
-    client.start();
+//    client.start();
 }
 
 /*! Check whether a vector contains a certain value.
