@@ -61,16 +61,16 @@
 #include <mongocxx/options/find.hpp>
 #include <mongocxx/pool.hpp>
 
-#include <server_ws.hpp>
-#include <client_ws.hpp>
-#include <server_http.hpp>
-#include <client_https.hpp>
+// #include <server_ws.hpp>
+// #include <client_ws.hpp>
+// #include <server_http.hpp>
+// #include <client_https.hpp>
 
-using WsServer = SimpleWeb::SocketServer<SimpleWeb::WS>;
-using WsClient = SimpleWeb::SocketClient<SimpleWeb::WS>;
+// using WsServer = SimpleWeb::SocketServer<SimpleWeb::WS>;
+// using WsClient = SimpleWeb::SocketClient<SimpleWeb::WS>;
 
-using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
-using HttpsClient = SimpleWeb::Client<SimpleWeb::HTTPS>;
+// using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
+// using HttpsClient = SimpleWeb::Client<SimpleWeb::HTTPS>;
 
 using namespace bsoncxx;
 using bsoncxx::builder::basic::kvp;
