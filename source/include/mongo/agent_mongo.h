@@ -61,6 +61,9 @@
 #include <mongocxx/options/find.hpp>
 #include <mongocxx/pool.hpp>
 
+#include <uWS/uWS.h>
+#include <pistache/endpoint.h>
+
 // #include <server_ws.hpp>
 // #include <client_ws.hpp>
 // #include <server_http.hpp>

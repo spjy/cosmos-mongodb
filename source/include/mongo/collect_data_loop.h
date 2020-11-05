@@ -76,14 +76,14 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
                             if (token.length() > 10 && difftime(currentTime, startTime) >= 1200) {
                                 time(&startTime);
                                 std::string json_string = "{\"blocks\":[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"Activity detected after 30 minutes!\"}},{\"type\":\"divider\"}]}";
-                                try {
-                                    cout << "POST request to http://hooks.slack.com" << endl;
-                                    auto response = client.request("POST", token, json_string);
-                                    cout << "Response content: " << response->content.string() << endl;
-                                }
-                                catch(const SimpleWeb::system_error &e) {
-                                    cout << "Client request error: " << e.what() << endl;
-                                }
+//                                try {
+//                                    cout << "POST request to http://hooks.slack.com" << endl;
+//                                    auto response = client.request("POST", token, json_string);
+//                                    cout << "Response content: " << response->content.string() << endl;
+//                                }
+//                                catch(const SimpleWeb::system_error &e) {
+//                                    cout << "Client request error: " << e.what() << endl;
+//                                }
                             }
 
                             try {
@@ -134,14 +134,14 @@ void collect_data_loop(mongocxx::client &connection_live, std::string &realm, st
                         if (token.length() > 10 && difftime(currentTime, startTime) >= 1200) {
                             time(&startTime);
                             std::string json_string = "{\"blocks\":[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"Activity detected sometime after 30 minutes!\"}},{\"type\":\"divider\"}]}";
-                            try {
-                                cout << "POST request to http://hooks.slack.com" << endl;
-                                auto response = client.request("POST", token, json_string);
-                                cout << "Response content: " << response->content.string() << endl;
-                            }
-                            catch(const SimpleWeb::system_error &e) {
-                                cout << "Client request error: " << e.what() << endl;
-                            }
+//                            try {
+//                                cout << "POST request to http://hooks.slack.com" << endl;
+//                                auto response = client.request("POST", token, json_string);
+//                                cout << "Response content: " << response->content.string() << endl;
+//                            }
+//                            catch(const SimpleWeb::system_error &e) {
+//                                cout << "Client request error: " << e.what() << endl;
+//                            }
                         }
 
                         auto any_collection = connection_live[realm]["any"];
