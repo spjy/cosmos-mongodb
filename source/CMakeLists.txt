@@ -6,7 +6,7 @@ project(${PROJECT_NAME})
 set(COSMOS_SOURCE ${PROJECT_SOURCE_DIR}/../../..)
 set(USE_COSMOS_FROM "SOURCE")
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -pedantic -std=c++17 -Wno-invalid-offsetof")
+set(CMAKE_CXX_FLAGS "-Wall -pedantic -std=c++17 -Wno-invalid-offsetof -pthread")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 
 # -----------------------------------------------
@@ -21,6 +21,8 @@ set(COSMOS_LIBS
 find_package(libmongocxx REQUIRED)
 find_package(libbsoncxx REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(Pistache 0.0.2 REQUIRED)
+find_package(ZLIB REQUIRED)
 
 # -----------------------------------------------
 # Windows specific
@@ -28,16 +30,21 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
     set(COSMOS_LIBS ${COSMOS_LIBS} ws2_32)
 endif()
 
+add_compile_definitions(LIBUS_NO_SSL=1)
+
 include_directories(${LIBMONGOCXX_INCLUDE_DIRS} ${LIBBSONCXX_INCLUDE_DIRS})
 link_directories(${LIBMONGOCXX_INCLUDE_DIRS})
 link_directories(${LIBBSONCXX_INCLUDE_DIRS})
 
 include_directories(${PROJECT_SOURCE_DIR}/include)
-include_directories(${PROJECT_SOURCE_DIR}/include/uWS)
-include_directories(${PROJECT_SOURCE_DIR}/include/uSocket)
-message(${LIBBSONCXX_INCLUDE_DIRS})
-add_executable(agent_mongo agent_mongo.cpp)
+include_directories(${PROJECT_SOURCE_DIR}/include/uSockets)
+include_directories(${PROJECT_SOURCE_DIR}/include/uWebSockets)
+
+file(GLOB_RECURSE USOCKET_SOURCES include/uSockets/*.c include/uSockets/*.cpp include/uSockets/*.h)
+
+add_executable(agent_mongo agent_mongo.cpp ${USOCKET_SOURCES})
 set_target_properties(agent_mongo PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/../../../../tools)
+set_property(TARGET agent_mongo PROPERTY CXX_STANDARD 17)
 
 target_include_directories(agent_mongo
   PRIVATE ${LIBMONGOCXX_INCLUDE_DIRS} ${LIBBSONCXX_INCLUDE_DIRS} ${PROJECT_SOURCE_DIR}/include
@@ -51,6 +58,8 @@ target_link_libraries(agent_mongo
   OpenSSL::SSL
   OpenSSL::Crypto
   stdc++fs
+  pistache_shared
+  ZLIB::ZLIB
 )
 
 target_compile_definitions(agent_mongo
