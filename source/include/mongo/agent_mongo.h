@@ -61,8 +61,10 @@
 #include <mongocxx/options/find.hpp>
 #include <mongocxx/pool.hpp>
 
-#include <uWS/uWS.h>
+#include <uWebSockets/App.h>
 #include <pistache/endpoint.h>
+
+using namespace Pistache;
 
 // #include <server_ws.hpp>
 // #include <client_ws.hpp>

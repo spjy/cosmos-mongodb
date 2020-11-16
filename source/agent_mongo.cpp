@@ -37,6 +37,7 @@
 #include <mongo/maintain_file_list.h>
 //#include <mongo/collect_data_loop.h>
 #include <mongo/maintain_event_queue.h>
+#include <mongo/endpoints.h>
 
 // TODO: change include paths so that we can make reference to cosmos using a full path
 // example
@@ -54,6 +55,10 @@ static thread maintain_file_list_thread;
 static thread maintain_event_queue_thread;
 mongocxx::client connection_file;
 mongocxx::client connection_command;
+
+auto hw = [](auto *res, auto *req) {
+    res->end("Bye world!");
+};
 
 int main(int argc, char** argv)
 {
@@ -805,6 +810,82 @@ int main(int argc, char** argv)
 //      query.start();
 //    });
 
+//        struct HelloHandler : public Http::Handler {
+//          HTTP_PROTOTYPE(HelloHandler)
+//          void onRequest(const Http::Request&, Http::ResponseWriter writer) override{
+//            writer.send(Http::Code::Ok, "Hello, World!");
+//          }
+//        };
+
+    thread query_thread([]() {
+        Port port(9080);
+
+        int thr = 2;
+
+        Address addr(Ipv4::any(), port);
+
+        cout << "Cores = " << hardware_concurrency() << endl;
+        cout << "Using " << thr << " threads" << endl;
+
+        auto server = std::make_shared<Http::Endpoint>(addr);
+
+        auto opts = Http::Endpoint::options()
+        .threads(thr);
+        server->init(opts);
+        server->setHandler(Http::make_handler<HttpHandler>());
+        server->serve();
+        // Start server
+    });
+
+    struct PerSocketData {};
+
+    thread ws_live_thread([]() {
+        /* Overly simple hello world app */
+            uWS::App().ws<PerSocketData>("/live/*", {
+               /* Settings */
+               .compression = uWS::DEDICATED_COMPRESSOR_3KB,
+               .maxPayloadLength = 16 * 1024 * 1024,
+               .idleTimeout = 10,
+               .maxBackpressure = 1 * 1024 * 1024,
+               /* Handlers */
+               .open = [](auto *ws) {
+                   /* Let's make every connection subscribe to the "broadcast" topic */
+                   ws->subscribe("broadcast");
+               },
+               .message = [](auto *ws, std::string_view message, uWS::OpCode opCode) {
+                    struct us_listen_socket_t *listen_socket;
+                   /* Exit gracefully if we get a closedown message (ASAN debug) */
+                   if (message == "closedown") {
+                      /* Bye bye */
+                      us_listen_socket_close(0, listen_socket);
+                      ws->close();
+                   }
+
+                   /* Simply broadcast every single message we get */
+                   ws->publish("broadcast", message, opCode, true);
+               },
+               .drain = [](auto *ws) {
+                   /* Check getBufferedAmount here */
+               },
+               .ping = [](auto *ws) {
+
+               },
+               .pong = [](auto *ws) {
+
+               },
+               .close = [](auto *ws, int code, std::string_view message) {
+                   /* We automatically unsubscribe from any topic here */
+               }
+             })
+               .listen(8081, [](auto *token) {
+                 if (token) {
+                     std::cout << "Thread " << std::this_thread::get_id() << " listening on port " << 9001 << std::endl;
+                 } else {
+                     std::cout << "Thread " << std::this_thread::get_id() << " failed to listen on port 9001" << std::endl;
+                 }
+               }).run();
+        });
+
 //    // Create a thread for the data collection and service requests.
 //    collect_data_thread = thread(collect_data_loop, std::ref(connection_live), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(collect_mode), std::ref(agent_path), std::ref(shell), std::ref(client), std::ref(token));
     process_files_thread = thread(process_files, std::ref(connection_file), std::ref(realm), std::ref(included_nodes), std::ref(excluded_nodes), std::ref(file_walk_path), "soh");
@@ -825,8 +906,8 @@ int main(int argc, char** argv)
     maintain_agent_list_thread.join();
     maintain_file_list_thread.join();
     maintain_event_queue_thread.join();
-//    query_thread.join();
-//    ws_live_thread.join();
+    query_thread.join();
+    ws_live_thread.join();
 
     return 0;
 }
